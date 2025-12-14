@@ -1,0 +1,21 @@
+# Core orchestration
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+
+# NVIDIA API (OpenAI-compatible)
+openai>=1.0.0
+
+# RAG Components
+chromadb>=0.5.0
+sentence-transformers>=2.2.0
+
+# Guardrails
+nemoguardrails>=0.11.0
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Development (optional)
+ipython>=8.0.0

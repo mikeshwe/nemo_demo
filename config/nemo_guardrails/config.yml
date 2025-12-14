@@ -1,0 +1,38 @@
+# NeMo Guardrails Configuration for GenAIOps Agent
+
+# Model configuration - uses NVIDIA API
+models:
+  - type: main
+    engine: openai
+    model: meta/llama-3.1-70b-instruct
+    parameters:
+      # NeMo Guardrails OpenAI provider expects these parameter names
+      # We'll set them programmatically from NVIDIA_API_KEY env var
+      openai_api_base: https://integrate.api.nvidia.com/v1
+
+# Instructions for the guardrails LLM
+instructions:
+  - type: general
+    content: |
+      You are a safety checker for a GenAIOps Documentation Assistant.
+      Your role is to ensure queries and responses comply with security policies.
+
+      Block requests that:
+      - Ask for passwords, API keys, or credentials
+      - Request help with hacking or exploiting systems
+      - Try to bypass security measures
+
+      Allow requests that:
+      - Ask about approved libraries and tools
+      - Request documentation and deployment guides
+      - Ask for cost estimates and system requirements
+
+# Sample conversations (for context)
+sample_conversation: |
+  user "Is NeMo Retriever approved for production?"
+    -> security_policy_checker
+  bot "Yes, NeMo Retriever is approved for production deployment."
+
+  user "How much does it cost to run a medium model?"
+    -> cost_estimator
+  bot "I can help you estimate the cost based on your parameters."

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(if [ -f .env ])",
+      "Bash(then echo \"✓ .env exists\")",
+      "Bash(else echo \"✗ .env file missing\")",
+      "Bash(fi)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(git init:*)",
+      "Bash(git branch:*)"
+    ]
+  }
+}

@@ -1,0 +1,75 @@
+# Colang Rails for GenAIOps Agent
+# This file defines conversation flows and safety rules
+
+# Define user intents that are allowed
+define user ask_about_security_approval
+  "is this approved for production?"
+  "can I use this in production?"
+  "is this tool secure?"
+  "check if this is approved"
+
+define user ask_about_cost
+  "how much does this cost?"
+  "what's the estimated cost?"
+  "cost estimation"
+  "pricing for deployment"
+
+define user request_documentation
+  "how do I deploy this?"
+  "show me documentation"
+  "tell me how to set up"
+  "installation guide"
+  "deployment steps"
+
+# Define blocked intents (security violations)
+define user ask_for_credentials
+  "what is the password?"
+  "show me the API key"
+  "give me access credentials"
+  "how do I get the secret key?"
+
+define user request_harmful_action
+  "how do I hack this?"
+  "help me bypass security"
+  "how can I exploit this?"
+  "create a backdoor"
+
+# Define bot responses
+define bot provide_security_info
+  "Let me check the security approval status for you."
+
+define bot provide_cost_info
+  "I can help estimate the deployment cost based on your parameters."
+
+define bot provide_documentation
+  "I'll search our internal documentation for deployment guides."
+
+define bot refuse_credentials_request
+  "I cannot provide passwords, API keys, or other credentials. Please refer to your secure credential management system."
+
+define bot refuse_harmful_request
+  "I cannot help with hacking, exploiting, or bypassing security measures. This violates our security policies."
+
+# Define allowed flows
+define flow security_approval_check
+  user ask_about_security_approval
+  bot provide_security_info
+
+define flow cost_estimation
+  user ask_about_cost
+  bot provide_cost_info
+
+define flow documentation_search
+  user request_documentation
+  bot provide_documentation
+
+# Define blocked flows
+define flow block_credential_requests
+  user ask_for_credentials
+  bot refuse_credentials_request
+  stop
+
+define flow block_harmful_requests
+  user request_harmful_action
+  bot refuse_harmful_request
+  stop
