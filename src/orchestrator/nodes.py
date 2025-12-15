@@ -4,6 +4,26 @@ from src.utils.logger import log_info, log_debug, log_warning, log_verbose
 from src.llm.prompts import SYSTEM_PROMPT
 from src.guardrails.nemo_guardrails import NemoGuardrailsWrapper
 
+# OpenTelemetry imports
+try:
+    from src.observability import (
+        get_tracer,
+        is_initialized,
+        ITERATION_NUMBER,
+        ITERATION_TYPE,
+        LLM_TOOL_CALLS_COUNT,
+        LLM_HAS_FINAL_ANSWER,
+        LLM_MESSAGE_COUNT,
+        TOOL_NAME,
+        TOOL_ARGUMENTS,
+        TOOL_SUCCESS,
+        TOOL_RESULT_SIZE
+    )
+    from src.observability.tracer import add_span_attributes, record_exception
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
 # Initialize guardrails (lazy-loaded)
 _guardrails = None
 
@@ -26,6 +46,32 @@ def reasoning_node(state, llm_client, tool_registry):
         Updated state
     """
     log_info(f"Reasoning iteration {state['iteration_count'] + 1}")
+
+    # Create OpenTelemetry span for reasoning iteration
+    if OTEL_AVAILABLE and is_initialized():
+        tracer = get_tracer()
+        with tracer.start_as_current_span("agent.iteration") as span:
+            add_span_attributes(span, {
+                ITERATION_NUMBER: state['iteration_count'] + 1,
+                ITERATION_TYPE: "reasoning"
+            })
+            return _execute_reasoning(state, llm_client, tool_registry, span)
+    else:
+        return _execute_reasoning(state, llm_client, tool_registry, None)
+
+
+def _execute_reasoning(state, llm_client, tool_registry, span=None):
+    """Execute reasoning logic with optional tracing
+
+    Args:
+        state: Current AgentState
+        llm_client: NVIDIAClient instance
+        tool_registry: ToolRegistry instance
+        span: Optional OpenTelemetry span
+
+    Returns:
+        Updated state
+    """
 
     # Check input guardrails on first iteration
     if state["iteration_count"] == 0:
@@ -131,9 +177,25 @@ def reasoning_node(state, llm_client, tool_registry):
             state["should_continue"] = True
             state["has_final_answer"] = False
 
+            # Add span attributes if available
+            if span is not None:
+                add_span_attributes(span, {
+                    LLM_TOOL_CALLS_COUNT: len(assistant_message.tool_calls),
+                    LLM_HAS_FINAL_ANSWER: False,
+                    LLM_MESSAGE_COUNT: len(messages)
+                })
+
         else:
             # No tool calls, this is the final answer
             log_info("LLM provided final answer")
+
+            # Add span attributes if available
+            if span is not None:
+                add_span_attributes(span, {
+                    LLM_TOOL_CALLS_COUNT: 0,
+                    LLM_HAS_FINAL_ANSWER: True,
+                    LLM_MESSAGE_COUNT: len(messages)
+                })
 
             # Check output guardrails
             guardrails = get_guardrails()
@@ -204,50 +266,13 @@ def tool_execution_node(state, tool_registry):
     # Increment actual tool call count
     new_tool_call_count = state.get("tool_call_count", 0) + len(tool_calls)
 
-    for tool_call in tool_calls:
-        tool_name = tool_call["function"]["name"]
-        tool_args_str = tool_call["function"]["arguments"]
-
-        log_info(f"Executing tool: {tool_name}")
-
-        try:
-            # Parse arguments
-            tool_args = json.loads(tool_args_str) if tool_args_str else {}
-            log_verbose(f"Tool arguments: {tool_args}")
-
-            # Execute tool
-            result = tool_registry.execute_tool(tool_name, **tool_args)
-            log_verbose(f"Tool result success: {result['success']}")
-
-            # Format observation
-            if result["success"]:
-                observation = f"Tool '{tool_name}' returned: {json.dumps(result['data'], indent=2)}"
-                log_info(f"✓ {tool_name} succeeded")
-            else:
-                observation = f"Tool '{tool_name}' failed: {result['error']}"
-                log_warning(f"✗ {tool_name} failed: {result['error']}")
-
-            observations.append(observation)
-
-            # Add tool result message to new messages list
-            new_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call["id"],
-                "name": tool_name,
-                "content": json.dumps(result)
-            })
-
-        except Exception as e:
-            log_warning(f"Tool execution failed: {e}")
-            observation = f"Tool '{tool_name}' error: {str(e)}"
-            observations.append(observation)
-
-            new_messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call["id"],
-                "name": tool_name,
-                "content": json.dumps({"success": False, "error": str(e)})
-            })
+    # Create OpenTelemetry span for tool execution
+    if OTEL_AVAILABLE and is_initialized():
+        tracer = get_tracer()
+        with tracer.start_as_current_span("agent.tool_execution") as parent_span:
+            _execute_tools(tool_calls, tool_registry, observations, new_messages, tracer)
+    else:
+        _execute_tools(tool_calls, tool_registry, observations, new_messages, None)
 
     # Return only new messages and updates for LangGraph to merge
     new_observations = "\n".join(observations) + "\n"
@@ -256,3 +281,111 @@ def tool_execution_node(state, tool_registry):
         "observations": state.get("observations", "") + new_observations,
         "tool_call_count": new_tool_call_count
     }
+
+
+def _execute_tools(tool_calls, tool_registry, observations, new_messages, tracer=None):
+    """Execute tools with optional tracing
+
+    Args:
+        tool_calls: List of tool calls to execute
+        tool_registry: ToolRegistry instance
+        observations: List to append observations to
+        new_messages: List to append new messages to
+        tracer: Optional OpenTelemetry tracer
+
+    Returns:
+        None (modifies observations and new_messages in place)
+    """
+    for tool_call in tool_calls:
+        tool_name = tool_call["function"]["name"]
+        tool_args_str = tool_call["function"]["arguments"]
+
+        log_info(f"Executing tool: {tool_name}")
+
+        # Create span for individual tool execution if tracer available
+        if tracer is not None:
+            with tracer.start_as_current_span(f"tool.{tool_name}") as tool_span:
+                _execute_single_tool(
+                    tool_call, tool_name, tool_args_str,
+                    tool_registry, observations, new_messages, tool_span
+                )
+        else:
+            _execute_single_tool(
+                tool_call, tool_name, tool_args_str,
+                tool_registry, observations, new_messages, None
+            )
+
+
+def _execute_single_tool(tool_call, tool_name, tool_args_str, tool_registry,
+                         observations, new_messages, span=None):
+    """Execute a single tool with optional tracing
+
+    Args:
+        tool_call: Tool call information
+        tool_name: Name of the tool
+        tool_args_str: JSON string of tool arguments
+        tool_registry: ToolRegistry instance
+        observations: List to append observations to
+        new_messages: List to append new messages to
+        span: Optional OpenTelemetry span
+    """
+    try:
+        # Parse arguments
+        tool_args = json.loads(tool_args_str) if tool_args_str else {}
+        log_verbose(f"Tool arguments: {tool_args}")
+
+        # Add span attributes if available
+        if span is not None:
+            add_span_attributes(span, {
+                TOOL_NAME: tool_name,
+                TOOL_ARGUMENTS: json.dumps(tool_args)
+            })
+
+        # Execute tool
+        result = tool_registry.execute_tool(tool_name, **tool_args)
+        log_verbose(f"Tool result success: {result['success']}")
+
+        # Add result attributes to span
+        if span is not None:
+            add_span_attributes(span, {
+                TOOL_SUCCESS: result["success"],
+                TOOL_RESULT_SIZE: len(json.dumps(result))
+            })
+
+        # Format observation
+        if result["success"]:
+            observation = f"Tool '{tool_name}' returned: {json.dumps(result['data'], indent=2)}"
+            log_info(f"✓ {tool_name} succeeded")
+        else:
+            observation = f"Tool '{tool_name}' failed: {result['error']}"
+            log_warning(f"✗ {tool_name} failed: {result['error']}")
+
+        observations.append(observation)
+
+        # Add tool result message to new messages list
+        new_messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call["id"],
+            "name": tool_name,
+            "content": json.dumps(result)
+        })
+
+    except Exception as e:
+        log_warning(f"Tool execution failed: {e}")
+
+        # Record exception in span
+        if span is not None:
+            record_exception(span, e)
+            add_span_attributes(span, {
+                TOOL_SUCCESS: False
+            })
+
+        observation = f"Tool '{tool_name}' error: {str(e)}"
+        observations.append(observation)
+
+        new_messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call["id"],
+            "name": tool_name,
+            "content": json.dumps({"success": False, "error": str(e)})
+        })

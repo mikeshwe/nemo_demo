@@ -1,6 +1,14 @@
 """Tool registry for managing agent tools"""
 from src.utils.logger import log_info, log_debug
 
+# OpenTelemetry imports
+try:
+    from src.observability import get_tracer, is_initialized, TOOL_NAME
+    from src.observability.tracer import add_span_attributes, record_exception
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
 class ToolRegistry:
     """Registry to manage and execute agent tools"""
 
@@ -66,10 +74,25 @@ class ToolRegistry:
             }
 
         log_debug(f"Executing tool: {name} with args: {list(kwargs.keys())}")
-        result = tool.execute(**kwargs)
-        log_debug(f"Tool {name} returned: success={result['success']}")
 
-        return result
+        # Create OpenTelemetry span for tool execution if available
+        if OTEL_AVAILABLE and is_initialized():
+            tracer = get_tracer()
+            with tracer.start_as_current_span(f"tool.execute.{name}") as span:
+                add_span_attributes(span, {TOOL_NAME: name})
+                try:
+                    result = tool.execute(**kwargs)
+                    span.set_attribute("tool.success", result.get("success", False))
+                    log_debug(f"Tool {name} returned: success={result['success']}")
+                    return result
+                except Exception as e:
+                    record_exception(span, e)
+                    span.set_attribute("tool.success", False)
+                    raise
+        else:
+            result = tool.execute(**kwargs)
+            log_debug(f"Tool {name} returned: success={result['success']}")
+            return result
 
     def list_tools(self):
         """Get list of registered tool names"""

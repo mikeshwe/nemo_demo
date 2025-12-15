@@ -2,6 +2,20 @@
 from sentence_transformers import SentenceTransformer
 from src.utils.logger import log_info
 
+# OpenTelemetry imports
+try:
+    from src.observability import (
+        get_tracer,
+        is_initialized,
+        EMBEDDING_MODEL,
+        EMBEDDING_TEXT_LENGTH,
+        EMBEDDING_DIMENSION
+    )
+    from src.observability.tracer import add_span_attributes, record_exception
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
 class EmbeddingModel:
     """Wrapper for SentenceTransformer embeddings"""
 
@@ -13,6 +27,7 @@ class EmbeddingModel:
                        This is a lightweight 384-dim model, good for prototypes
         """
         log_info(f"Loading embedding model: {model_name}")
+        self.model_name = model_name
         self.model = SentenceTransformer(model_name)
         log_info(f"✓ Embedding model loaded")
 
@@ -37,8 +52,26 @@ class EmbeddingModel:
         Returns:
             Embedding vector
         """
-        embedding = self.model.encode([text], convert_to_numpy=True)[0]
-        return embedding.tolist()
+        # Create OpenTelemetry span for embedding generation
+        if OTEL_AVAILABLE and is_initialized():
+            tracer = get_tracer()
+            with tracer.start_as_current_span("rag.embedding.query") as span:
+                add_span_attributes(span, {
+                    EMBEDDING_MODEL: self.model_name,
+                    EMBEDDING_TEXT_LENGTH: len(text)
+                })
+
+                try:
+                    embedding = self.model.encode([text], convert_to_numpy=True)[0]
+                    result = embedding.tolist()
+                    add_span_attributes(span, {EMBEDDING_DIMENSION: len(result)})
+                    return result
+                except Exception as e:
+                    record_exception(span, e)
+                    raise
+        else:
+            embedding = self.model.encode([text], convert_to_numpy=True)[0]
+            return embedding.tolist()
 
     def __call__(self, text):
         """Allow callable syntax for ChromaDB compatibility"""

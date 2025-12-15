@@ -12,6 +12,25 @@ except ImportError:
 from src.utils.logger import log_info, log_warning, log_debug, log_verbose
 from src.guardrails.policy_checker import SimplePolicyChecker
 
+# OpenTelemetry imports
+try:
+    from src.observability import (
+        get_tracer,
+        is_initialized,
+        GUARDRAILS_TYPE,
+        GUARDRAILS_CHECK_TYPE,
+        GUARDRAILS_PASSED,
+        GUARDRAILS_REJECTION_REASON,
+        GUARDRAILS_INPUT_LENGTH,
+        GUARDRAILS_OUTPUT_LENGTH,
+        EVENT_INPUT_BLOCKED,
+        EVENT_OUTPUT_BLOCKED
+    )
+    from src.observability.tracer import add_span_attributes, record_exception
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
 class NemoGuardrailsWrapper:
     """Wrapper for NeMo Guardrails with fallback to SimplePolicyChecker
 
@@ -84,14 +103,41 @@ class NemoGuardrailsWrapper:
 
         log_verbose(f"Checking input: {user_input[:100]}...")
 
-        # Use NeMo Guardrails if available
-        if self.enabled and self.rails:
-            log_info("🛡️  Checking input with NeMo Guardrails...")
-            return self._check_input_with_nemo(user_input)
+        # Create OpenTelemetry span for input validation
+        if OTEL_AVAILABLE and is_initialized():
+            tracer = get_tracer()
+            with tracer.start_as_current_span("guardrails.input_check") as span:
+                add_span_attributes(span, {
+                    GUARDRAILS_CHECK_TYPE: "input",
+                    GUARDRAILS_INPUT_LENGTH: len(user_input),
+                    GUARDRAILS_TYPE: "nemo" if (self.enabled and self.rails) else "fallback"
+                })
 
-        # Fallback to simple checker
-        log_info("🛡️  Checking input with fallback guardrails...")
-        return self._check_input_with_fallback(user_input)
+                # Use NeMo Guardrails if available
+                if self.enabled and self.rails:
+                    log_info("🛡️  Checking input with NeMo Guardrails...")
+                    passed, reason = self._check_input_with_nemo(user_input)
+                else:
+                    # Fallback to simple checker
+                    log_info("🛡️  Checking input with fallback guardrails...")
+                    passed, reason = self._check_input_with_fallback(user_input)
+
+                # Add result to span
+                add_span_attributes(span, {GUARDRAILS_PASSED: passed})
+                if not passed:
+                    add_span_attributes(span, {GUARDRAILS_REJECTION_REASON: reason})
+                    span.add_event(EVENT_INPUT_BLOCKED, {"reason": reason})
+
+                return passed, reason
+        else:
+            # Use NeMo Guardrails if available
+            if self.enabled and self.rails:
+                log_info("🛡️  Checking input with NeMo Guardrails...")
+                return self._check_input_with_nemo(user_input)
+
+            # Fallback to simple checker
+            log_info("🛡️  Checking input with fallback guardrails...")
+            return self._check_input_with_fallback(user_input)
 
     def _check_input_with_nemo(self, user_input: str) -> Tuple[bool, Optional[str]]:
         """Check input using NeMo Guardrails"""
@@ -174,14 +220,41 @@ class NemoGuardrailsWrapper:
 
         log_verbose(f"Checking output: {llm_response[:100]}...")
 
-        # Use NeMo Guardrails if available
-        if self.enabled and self.rails:
-            log_info("🛡️  Checking output with NeMo Guardrails...")
-            return self._check_output_with_nemo(llm_response, context)
+        # Create OpenTelemetry span for output validation
+        if OTEL_AVAILABLE and is_initialized():
+            tracer = get_tracer()
+            with tracer.start_as_current_span("guardrails.output_check") as span:
+                add_span_attributes(span, {
+                    GUARDRAILS_CHECK_TYPE: "output",
+                    GUARDRAILS_OUTPUT_LENGTH: len(llm_response),
+                    GUARDRAILS_TYPE: "nemo" if (self.enabled and self.rails) else "fallback"
+                })
 
-        # Fallback to simple checker
-        log_info("🛡️  Checking output with fallback guardrails...")
-        return self._check_output_with_fallback(llm_response)
+                # Use NeMo Guardrails if available
+                if self.enabled and self.rails:
+                    log_info("🛡️  Checking output with NeMo Guardrails...")
+                    passed, reason = self._check_output_with_nemo(llm_response, context)
+                else:
+                    # Fallback to simple checker
+                    log_info("🛡️  Checking output with fallback guardrails...")
+                    passed, reason = self._check_output_with_fallback(llm_response)
+
+                # Add result to span
+                add_span_attributes(span, {GUARDRAILS_PASSED: passed})
+                if not passed:
+                    add_span_attributes(span, {GUARDRAILS_REJECTION_REASON: reason})
+                    span.add_event(EVENT_OUTPUT_BLOCKED, {"reason": reason})
+
+                return passed, reason
+        else:
+            # Use NeMo Guardrails if available
+            if self.enabled and self.rails:
+                log_info("🛡️  Checking output with NeMo Guardrails...")
+                return self._check_output_with_nemo(llm_response, context)
+
+            # Fallback to simple checker
+            log_info("🛡️  Checking output with fallback guardrails...")
+            return self._check_output_with_fallback(llm_response)
 
     def _check_output_with_nemo(self, llm_response: str, context: Optional[Dict] = None) -> Tuple[bool, Optional[str]]:
         """Check output using NeMo Guardrails"""

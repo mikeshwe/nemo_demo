@@ -3,6 +3,22 @@ import chromadb
 from chromadb.config import Settings
 from src.utils.logger import log_info, log_debug
 
+# OpenTelemetry imports
+try:
+    from src.observability import (
+        get_tracer,
+        is_initialized,
+        RAG_QUERY,
+        RAG_QUERY_LENGTH,
+        RAG_TOP_K,
+        RAG_RESULTS_COUNT,
+        RAG_TOP_SCORE
+    )
+    from src.observability.tracer import add_span_attributes, record_exception
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
 class VectorStore:
     """ChromaDB-based vector store for semantic search"""
 
@@ -65,29 +81,75 @@ class VectorStore:
         """
         log_debug(f"Searching for: {query_text[:50]}...")
 
-        # Embed the query
-        query_embedding = embedding_function(query_text)
+        # Create OpenTelemetry span for vector search
+        if OTEL_AVAILABLE and is_initialized():
+            tracer = get_tracer()
+            with tracer.start_as_current_span("rag.vector_search") as span:
+                add_span_attributes(span, {
+                    RAG_QUERY: query_text[:200],  # Truncate for readability
+                    RAG_QUERY_LENGTH: len(query_text),
+                    RAG_TOP_K: k
+                })
 
-        # Query ChromaDB
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k,
-            include=["documents", "metadatas", "distances"]
-        )
+                try:
+                    # Embed the query (already instrumented in embeddings.py)
+                    query_embedding = embedding_function(query_text)
 
-        # Format results
-        documents = []
-        if results["documents"] and len(results["documents"][0]) > 0:
-            for i in range(len(results["documents"][0])):
-                doc = {
-                    "content": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
-                    "score": 1.0 - results["distances"][0][i]  # Convert distance to similarity
-                }
-                documents.append(doc)
+                    # Query ChromaDB
+                    with tracer.start_as_current_span("rag.chromadb_query"):
+                        results = self.collection.query(
+                            query_embeddings=[query_embedding],
+                            n_results=k,
+                            include=["documents", "metadatas", "distances"]
+                        )
 
-        log_debug(f"Found {len(documents)} results")
-        return documents
+                    # Format results
+                    documents = []
+                    if results["documents"] and len(results["documents"][0]) > 0:
+                        for i in range(len(results["documents"][0])):
+                            doc = {
+                                "content": results["documents"][0][i],
+                                "metadata": results["metadatas"][0][i],
+                                "score": 1.0 - results["distances"][0][i]  # Convert distance to similarity
+                            }
+                            documents.append(doc)
+
+                    # Add result attributes to span
+                    add_span_attributes(span, {
+                        RAG_RESULTS_COUNT: len(documents),
+                        RAG_TOP_SCORE: max((d["score"] for d in documents), default=0.0)
+                    })
+
+                    log_debug(f"Found {len(documents)} results")
+                    return documents
+
+                except Exception as e:
+                    record_exception(span, e)
+                    raise
+        else:
+            # Embed the query
+            query_embedding = embedding_function(query_text)
+
+            # Query ChromaDB
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=k,
+                include=["documents", "metadatas", "distances"]
+            )
+
+            # Format results
+            documents = []
+            if results["documents"] and len(results["documents"][0]) > 0:
+                for i in range(len(results["documents"][0])):
+                    doc = {
+                        "content": results["documents"][0][i],
+                        "metadata": results["metadatas"][0][i],
+                        "score": 1.0 - results["distances"][0][i]  # Convert distance to similarity
+                    }
+                    documents.append(doc)
+
+            log_debug(f"Found {len(documents)} results")
+            return documents
 
     def clear_collection(self):
         """Delete all documents from collection"""
