@@ -9,6 +9,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
+# Initialize OpenTelemetry observability
+from src.observability import initialize_observability, shutdown_observability
+
 # Configuration
 from config.settings import settings
 from config.policies import APPROVED_LIBRARIES
@@ -224,6 +227,8 @@ Examples:
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logging')
     parser.add_argument('--vv', action='store_true', help='Enable very verbose logging (all details)')
     parser.add_argument('--quiet', '-q', action='store_true', help='Show errors only')
+    parser.add_argument('--save-telemetry', type=str, metavar='PATH',
+                        help='Save telemetry to file (default: telemetry_report.txt)')
 
     args = parser.parse_args()
 
@@ -237,23 +242,55 @@ Examples:
     else:
         set_log_level(1)  # Info (default)
 
-    print_banner()
+    # Determine file paths for telemetry
+    telemetry_json = None
+    telemetry_report = None
+    if args.save_telemetry:
+        # If user provided a path, use it; otherwise use default
+        if args.save_telemetry == 'True':  # argparse quirk when used as flag
+            telemetry_report = "telemetry_report.txt"
+        else:
+            telemetry_report = args.save_telemetry
 
-    # Initialize components
-    agent, guardrails_checker = initialize_components()
+        # JSON file will be .json version
+        telemetry_json = telemetry_report.replace('.txt', '.json') if telemetry_report.endswith('.txt') else telemetry_report + '.json'
 
-    if not agent:
-        return 1
+    # Initialize OpenTelemetry observability
+    initialize_observability(
+        service_name="genaiops-agent",
+        service_version="1.0.0",
+        environment="production",
+        enable_console=(not args.quiet),  # Disable console if quiet mode
+        file_path=telemetry_json
+    )
 
-    # Run interactive mode
     try:
-        run_interactive_mode(agent, guardrails_checker)
-        return 0
+        print_banner()
 
-    except Exception as e:
-        log_error(f"Fatal error: {e}")
-        print(f"\n❌ Fatal error: {e}")
-        return 1
+        # Initialize components
+        agent, guardrails_checker = initialize_components()
+
+        if not agent:
+            return 1
+
+        # Run interactive mode
+        try:
+            run_interactive_mode(agent, guardrails_checker)
+            return 0
+
+        except Exception as e:
+            log_error(f"Fatal error: {e}")
+            print(f"\n❌ Fatal error: {e}")
+            return 1
+
+    finally:
+        # Shutdown and flush OpenTelemetry
+        shutdown_observability()
+
+        # Generate telemetry report if requested
+        if telemetry_json and telemetry_report:
+            from src.observability.file_exporter import save_telemetry_report
+            save_telemetry_report(telemetry_json, telemetry_report)
 
 if __name__ == "__main__":
     sys.exit(main())

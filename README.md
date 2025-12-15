@@ -10,6 +10,7 @@ This project showcases:
 - **RAG (Retrieval-Augmented Generation)**: ChromaDB-powered document search
 - **Agent Tools**: Security policy checking, cost estimation, and documentation search
 - **NeMo Guardrails**: Enterprise-grade safety validation with NVIDIA's NeMo Guardrails
+- **AI Observability**: OpenTelemetry instrumentation for comprehensive tracing and monitoring
 
 ## 🏗️ Architecture
 
@@ -44,6 +45,123 @@ This project showcases:
    │Guardrails  │
    └────────────┘
 ```
+
+## 🔭 AI Observability
+
+This demo includes comprehensive OpenTelemetry instrumentation for AI observability, demonstrating production-ready monitoring practices for agentic AI systems.
+
+### What's Instrumented
+
+- ✅ **Agent Execution**: Complete agent runs with query, iterations, and tool calls
+- ✅ **LLM API Calls**: Auto-instrumented OpenAI SDK capturing all NVIDIA API calls
+- ✅ **Tool Executions**: Individual tool calls with arguments, results, and timing
+- ✅ **Guardrails**: Input/output validation with NeMo Guardrails or fallback
+- ✅ **RAG Operations**: Embedding generation and vector search with ChromaDB
+- ✅ **Iterations**: Each reasoning step with decision tracking
+
+### Viewing Telemetry
+
+All scripts automatically export OpenTelemetry traces to console/stdout for easy demo visibility:
+
+```bash
+# Run any script to see traces
+python simple_test.py
+
+# Traces will appear in JSON format showing:
+# - Span hierarchy (parent → child relationships)
+# - Timing information (duration of each operation)
+# - Custom attributes (iteration count, tool names, success/failure)
+# - Auto-instrumented LLM calls (model, temperature, tokens, prompts)
+```
+
+### Saving Telemetry Reports
+
+Export telemetry to a file with visualizations and metrics:
+
+```bash
+# Save telemetry report with default name (telemetry_report.txt)
+python simple_test.py --save-telemetry telemetry_report.txt
+
+# This creates two files:
+# - telemetry_report.txt (human-readable report with ASCII graphs)
+# - telemetry_report.json (raw telemetry data)
+
+# Use with quiet mode for clean output
+python simple_test.py --quiet --save-telemetry my_report.txt
+```
+
+**What's in the report:**
+- 📊 **Summary Statistics**: Total spans, iterations, tool calls, LLM API calls
+- ⏱️ **Execution Timeline**: ASCII visualization of span hierarchy and timing
+- 🪙 **Token Usage Chart**: Bar chart showing token consumption per LLM call
+- 🔧 **Tool Timing**: Performance metrics for each tool execution
+
+**Example output:**
+```
+================================================================================
+TELEMETRY SUMMARY
+================================================================================
+
+📊 Overall Statistics:
+  Total Spans: 12
+  Agent Runs: 1
+  Iterations: 2
+  Tool Calls: 2
+  LLM API Calls: 4
+
+🤖 Agent Execution:
+  Query: Is NeMo Retriever approved for production?
+  Iterations: 2
+  Tool Calls: 1
+  Success: True
+  Duration: 17735.24 ms
+
+🧠 LLM API Calls:
+  Total Calls: 4
+  Total Tokens: 2664
+  Input Tokens: 2618
+  Output Tokens: 46
+  Avg Duration: 4128.53 ms
+
+================================================================================
+EXECUTION TIMELINE
+================================================================================
+
+agent.run                      [████████████████████████████████████████] 17735.24 ms
+  agent.iteration                [████████                                ]  3754.85 ms
+    guardrails.input_check         [  ███                                   ]  1358.60 ms
+    openai.chat                    [     ██                                 ]  1221.40 ms
+  agent.tool_execution           [        █                               ]     0.27 ms
+  agent.iteration                [        ███████████████████████████████ ] 13976.06 ms
+```
+
+### Trace Structure
+
+Each agent run creates a hierarchical trace:
+
+```
+agent.run (root span)
+├── agent.iteration (reasoning step)
+│   ├── guardrails.input_check (safety validation)
+│   ├── openai.chat (LLM API call - auto-instrumented)
+│   ├── agent.tool_execution
+│   │   └── tool.execute.security_policy_checker
+│   └── guardrails.output_check (safety validation)
+└── agent.iteration (final answer)
+    ├── openai.chat (LLM API call)
+    └── guardrails.output_check
+```
+
+### Production Export
+
+While this demo uses console export, the instrumentation is production-ready and can export to:
+
+- **Jaeger** / **Zipkin**: Distributed tracing visualization
+- **Prometheus**: Metrics collection and alerting
+- **Datadog** / **New Relic** / **Honeycomb**: Cloud observability platforms
+- **OTLP**: Any OpenTelemetry-compatible backend
+
+See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for detailed configuration and advanced usage.
 
 ## 📋 Prerequisites
 
