@@ -53,7 +53,7 @@ initialize_observability(
     service_name="genaiops-agent",
     service_version="1.0.0",
     environment="development",
-    enable_console=(not args.quiet),  # Disable console if quiet mode
+    enable_console=(not args.save_telemetry),  # Disable console if saving to file
     file_path=telemetry_json
 )
 

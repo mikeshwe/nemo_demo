@@ -19,11 +19,16 @@ from src.rag.vectorstore import VectorStore
 from src.orchestrator.agent import GenAIOpsAgent
 from src.guardrails.nemo_guardrails import NemoGuardrailsWrapper
 
+# OpenTelemetry observability
+from src.observability import initialize_observability, shutdown_observability
+
 # Parse arguments
 parser = argparse.ArgumentParser(description="Demo with multiple queries")
 parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logging')
 parser.add_argument('--vv', action='store_true', help='Enable very verbose logging')
 parser.add_argument('--quiet', '-q', action='store_true', help='Show errors only')
+parser.add_argument('--save-telemetry', type=str, metavar='PATH',
+                    help='Save telemetry to file (default: telemetry_report.txt)')
 args = parser.parse_args()
 
 # Set log level
@@ -36,56 +41,87 @@ elif args.verbose:
 else:
     set_log_level(1)
 
-print("=" * 70)
-print("GenAIOps Agent - Demo Queries")
-print("=" * 70)
-print("\nInitializing...", end="")
+# Determine file paths for telemetry
+telemetry_json = None
+telemetry_report = None
+if args.save_telemetry:
+    # If user provided a path, use it; otherwise use default
+    if args.save_telemetry == 'True':  # argparse quirk when used as flag
+        telemetry_report = "telemetry_report.txt"
+    else:
+        telemetry_report = args.save_telemetry
 
-llm_client = NVIDIAClient(settings.nvidia_api_key, settings.nvidia_base_url, settings.nvidia_model)
-embedding_model = EmbeddingModel()
-vectorstore = VectorStore(persist_directory=settings.chroma_persist_dir)
-tool_registry = ToolRegistry()
-tool_registry.register(SecurityPolicyChecker(approved_list=APPROVED_LIBRARIES))
-tool_registry.register(CostEstimator())
-tool_registry.register(InternalDocsSearch(vectorstore=vectorstore, embedding_function=embedding_model))
-agent = GenAIOpsAgent(llm_client=llm_client, tool_registry=tool_registry)
-guardrails = NemoGuardrailsWrapper()
+    # JSON file will be .json version
+    telemetry_json = telemetry_report.replace('.txt', '.json') if telemetry_report.endswith('.txt') else telemetry_report + '.json'
 
-print(" ✓\n")
+# Initialize OpenTelemetry observability
+initialize_observability(
+    service_name="genaiops-agent-demo",
+    service_version="1.0.0",
+    environment="demo",
+    enable_console=(not args.save_telemetry),  # Disable console if saving to file
+    file_path=telemetry_json
+)
 
-# Show guardrails status
-status = guardrails.get_status()
-print("🛡️  Guardrails Status:")
-print(f"   • NeMo Guardrails: {'✅ ENABLED' if status['nemo_enabled'] else '❌ Using Fallback'}")
-print(f"   • Fallback: {status['fallback_type']}")
-print()
+try:
+    print("=" * 70)
+    print("GenAIOps Agent - Demo Queries")
+    print("=" * 70)
+    print("\nInitializing...", end="")
 
-queries = [
-    "Is NeMo Retriever approved for production?",
-    "What is the cost for running a medium model with 5 million tokens per month?",
-    "What are the GPU requirements for NeMo Retriever?",
-]
+    llm_client = NVIDIAClient(settings.nvidia_api_key, settings.nvidia_base_url, settings.nvidia_model)
+    embedding_model = EmbeddingModel()
+    vectorstore = VectorStore(persist_directory=settings.chroma_persist_dir)
+    tool_registry = ToolRegistry()
+    tool_registry.register(SecurityPolicyChecker(approved_list=APPROVED_LIBRARIES))
+    tool_registry.register(CostEstimator())
+    tool_registry.register(InternalDocsSearch(vectorstore=vectorstore, embedding_function=embedding_model))
+    agent = GenAIOpsAgent(llm_client=llm_client, tool_registry=tool_registry)
+    guardrails = NemoGuardrailsWrapper()
 
-for i, query in enumerate(queries, 1):
+    print(" ✓\n")
+
+    # Show guardrails status
+    status = guardrails.get_status()
+    print("🛡️  Guardrails Status:")
+    print(f"   • NeMo Guardrails: {'✅ ENABLED' if status['nemo_enabled'] else '❌ Using Fallback'}")
+    print(f"   • Fallback: {status['fallback_type']}")
+    print()
+
+    queries = [
+        "Is NeMo Retriever approved for production?",
+        "What is the cost for running a medium model with 5 million tokens per month?",
+        "What are the GPU requirements for NeMo Retriever?",
+    ]
+
+    for i, query in enumerate(queries, 1):
+        print("\n" + "=" * 70)
+        print(f"Query {i}: {query}")
+        print("=" * 70)
+
+        result = agent.run(query)
+
+        if result["success"]:
+            # Check output with NeMo Guardrails
+            passed, reason = guardrails.check_output(result["answer"])
+            guardrails_icon = "🛡️✅" if passed else "🛡️⚠️"
+            guardrails_type = "NeMo" if guardrails.is_enabled() else "Fallback"
+
+            print(f"\n🤖 {result['answer']}")
+            print(f"\n📊 {result['tool_calls']} tool calls | {result['iterations']} iterations | {guardrails_icon} {guardrails_type} guardrails")
+            if not passed:
+                print(f"   ⚠️  Guardrails concern: {reason}")
+        else:
+            print(f"\n❌ {result.get('error')}")
+
     print("\n" + "=" * 70)
-    print(f"Query {i}: {query}")
+    print("Demo complete!")
     print("=" * 70)
 
-    result = agent.run(query)
+finally:
+    # Shutdown observability and save telemetry if requested
+    shutdown_observability()
 
-    if result["success"]:
-        # Check output with NeMo Guardrails
-        passed, reason = guardrails.check_output(result["answer"])
-        guardrails_icon = "🛡️✅" if passed else "🛡️⚠️"
-        guardrails_type = "NeMo" if guardrails.is_enabled() else "Fallback"
-
-        print(f"\n🤖 {result['answer']}")
-        print(f"\n📊 {result['tool_calls']} tool calls | {result['iterations']} iterations | {guardrails_icon} {guardrails_type} guardrails")
-        if not passed:
-            print(f"   ⚠️  Guardrails concern: {reason}")
-    else:
-        print(f"\n❌ {result.get('error')}")
-
-print("\n" + "=" * 70)
-print("Demo complete!")
-print("=" * 70)
+    if args.save_telemetry:
+        from src.observability.file_exporter import save_telemetry_report
+        save_telemetry_report(telemetry_json, telemetry_report)
