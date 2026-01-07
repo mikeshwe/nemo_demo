@@ -12,6 +12,9 @@ load_dotenv()
 # Initialize OpenTelemetry observability
 from src.observability import initialize_observability, shutdown_observability
 
+# Langfuse observability (optional)
+from src.observability.langfuse_integration import initialize_langfuse, shutdown_langfuse
+
 # Configuration
 from config.settings import settings
 from config.policies import APPROVED_LIBRARIES
@@ -229,6 +232,8 @@ Examples:
     parser.add_argument('--quiet', '-q', action='store_true', help='Show errors only')
     parser.add_argument('--save-telemetry', type=str, metavar='PATH',
                         help='Save telemetry to file (default: telemetry_report.txt)')
+    parser.add_argument('--langfuse', action='store_true',
+                        help='Enable Langfuse LLM observability dashboard')
 
     args = parser.parse_args()
 
@@ -264,6 +269,12 @@ Examples:
         file_path=telemetry_json
     )
 
+    # Initialize Langfuse if requested
+    if args.langfuse:
+        langfuse_success = initialize_langfuse(enabled=True)
+        if not langfuse_success:
+            print("⚠️  Langfuse initialization failed, continuing without it")
+
     try:
         print_banner()
 
@@ -286,6 +297,10 @@ Examples:
     finally:
         # Shutdown and flush OpenTelemetry
         shutdown_observability()
+
+        # Shutdown Langfuse if it was enabled
+        if args.langfuse:
+            shutdown_langfuse()
 
         # Generate telemetry report if requested
         if telemetry_json and telemetry_report:

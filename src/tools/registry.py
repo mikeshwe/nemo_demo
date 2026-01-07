@@ -9,6 +9,16 @@ try:
 except ImportError:
     OTEL_AVAILABLE = False
 
+# Langfuse imports
+try:
+    from src.observability.langfuse_integration import (
+        log_tool_execution,
+        is_langfuse_enabled
+    )
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+
 class ToolRegistry:
     """Registry to manage and execute agent tools"""
 
@@ -84,6 +94,16 @@ class ToolRegistry:
                     result = tool.execute(**kwargs)
                     span.set_attribute("tool.success", result.get("success", False))
                     log_debug(f"Tool {name} returned: success={result['success']}")
+
+                    # Log to Langfuse
+                    if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+                        log_tool_execution(
+                            name=name,
+                            input_args=kwargs,
+                            output=result,
+                            metadata={"success": result.get("success", False)}
+                        )
+
                     return result
                 except Exception as e:
                     record_exception(span, e)
@@ -92,6 +112,16 @@ class ToolRegistry:
         else:
             result = tool.execute(**kwargs)
             log_debug(f"Tool {name} returned: success={result['success']}")
+
+            # Log to Langfuse (when OTEL not available)
+            if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+                log_tool_execution(
+                    name=name,
+                    input_args=kwargs,
+                    output=result,
+                    metadata={"success": result.get("success", False)}
+                )
+
             return result
 
     def list_tools(self):

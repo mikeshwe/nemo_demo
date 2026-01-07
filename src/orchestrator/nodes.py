@@ -24,6 +24,17 @@ try:
 except ImportError:
     OTEL_AVAILABLE = False
 
+# Langfuse imports
+try:
+    from src.observability.langfuse_integration import (
+        log_llm_generation,
+        is_langfuse_enabled
+    )
+    from src.observability.cost_calculator import log_cost_to_langfuse
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+
 # Initialize guardrails (lazy-loaded)
 _guardrails = None
 
@@ -127,6 +138,31 @@ def _execute_reasoning(state, llm_client, tool_registry, span=None):
         )
 
         assistant_message = response.choices[0].message
+
+        # Log to Langfuse
+        if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+                "total_tokens": response.usage.total_tokens if response.usage else 0
+            }
+
+            log_llm_generation(
+                name=f"reasoning_iteration_{state['iteration_count'] + 1}",
+                model=llm_client.model_name,
+                input_messages=messages,
+                output=assistant_message.content or "",
+                metadata={
+                    "temperature": 0.2,
+                    "max_tokens": 1024,
+                    "has_tool_calls": bool(assistant_message.tool_calls),
+                    "iteration": state['iteration_count'] + 1
+                },
+                usage=usage
+            )
+
+            # Log cost
+            log_cost_to_langfuse(llm_client.model_name, usage)
 
         log_verbose(f"LLM response - has tool_calls: {bool(assistant_message.tool_calls)}")
 

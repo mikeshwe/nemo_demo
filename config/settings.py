@@ -20,6 +20,11 @@ class Settings:
         # Agent Configuration
         self.max_iterations = int(os.getenv("MAX_ITERATIONS", "10"))
 
+        # Langfuse Configuration (optional)
+        self.langfuse_public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+        self.langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+        self.langfuse_host = os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+
     def validate(self):
         """Basic validation (MVP version)"""
         if not self.nvidia_api_key:
