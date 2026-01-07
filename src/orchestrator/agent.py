@@ -21,6 +21,18 @@ try:
 except ImportError:
     OTEL_AVAILABLE = False
 
+# Langfuse imports
+try:
+    from src.observability.langfuse_integration import (
+        trace_agent_run,
+        is_langfuse_enabled,
+        score_generation,
+        set_trace_output
+    )
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+
 class GenAIOpsAgent:
     """GenAIOps Documentation Assistant Agent
 
@@ -76,6 +88,21 @@ class GenAIOpsAgent:
             "final_answer": ""
         }
 
+        # Create Langfuse trace (wraps entire execution)
+        if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+            with trace_agent_run(
+                query=query,
+                metadata={
+                    "max_iterations": self.max_iterations,
+                    "tool_count": len(self.tool_registry.tools)
+                }
+            ):
+                return self._execute_agent(initial_state, query)
+        else:
+            return self._execute_agent(initial_state, query)
+
+    def _execute_agent(self, initial_state, query):
+        """Execute agent with both OTEL and Langfuse support"""
         # Create OpenTelemetry span for entire agent run
         if OTEL_AVAILABLE and is_initialized():
             tracer = get_tracer()
@@ -87,10 +114,45 @@ class GenAIOpsAgent:
                 })
                 span.add_event(EVENT_AGENT_START)
 
-                return self._run_with_tracing(span, initial_state)
+                result = self._run_with_tracing(span, initial_state)
+
+                # Add Langfuse scores after execution
+                if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+                    self._add_langfuse_scores(result)
+
+                return result
         else:
-            # Run without tracing
-            return self._run_without_tracing(initial_state)
+            # Run without OTEL tracing
+            result = self._run_without_tracing(initial_state)
+
+            # Add Langfuse scores after execution
+            if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+                self._add_langfuse_scores(result)
+
+            return result
+
+    def _add_langfuse_scores(self, result):
+        """Add quality and efficiency scores to Langfuse trace"""
+        # Success score (1.0 if successful, 0.0 if failed)
+        success_score = 1.0 if result.get("success", False) else 0.0
+        score_generation("success", success_score)
+
+        # Efficiency score (based on iterations used)
+        iterations = result.get("iterations", 0)
+        if iterations > 0:
+            efficiency = 1.0 - (iterations / self.max_iterations)
+            score_generation(
+                "efficiency",
+                efficiency,
+                f"Used {iterations}/{self.max_iterations} iterations"
+            )
+
+        # Set final output
+        set_trace_output({
+            "answer": result.get("answer", ""),
+            "tool_calls": result.get("tool_calls", 0),
+            "iterations": iterations
+        })
 
     def _run_with_tracing(self, span, initial_state):
         """Run agent with OpenTelemetry tracing

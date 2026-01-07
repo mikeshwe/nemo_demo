@@ -10,7 +10,7 @@ This project showcases:
 - **RAG (Retrieval-Augmented Generation)**: ChromaDB-powered document search
 - **Agent Tools**: Security policy checking, cost estimation, and documentation search
 - **NeMo Guardrails**: Enterprise-grade safety validation with NVIDIA's NeMo Guardrails
-- **AI Observability**: OpenTelemetry instrumentation for comprehensive tracing and monitoring
+- **AI Observability**: Dual observability with OpenTelemetry (infrastructure) and Langfuse (LLM analytics)
 
 ## 🏗️ Architecture
 
@@ -162,6 +162,98 @@ While this demo uses console export, the instrumentation is production-ready and
 - **OTLP**: Any OpenTelemetry-compatible backend
 
 See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for detailed configuration and advanced usage.
+
+## 🔍 LLM Observability with Langfuse
+
+In addition to OpenTelemetry, this demo includes **Langfuse** integration for LLM-specific observability with an interactive web dashboard.
+
+### Why Langfuse?
+
+Langfuse provides specialized observability for LLM applications:
+
+- 🔭 **Interactive Traces**: Visual exploration of agent execution with drill-down
+- 💰 **Automatic Cost Tracking**: Calculate USD costs per query based on token usage
+- 📊 **Quality Metrics**: Track success rates and efficiency scores
+- 🎯 **Prompt Management**: Version control and A/B testing for prompts
+- 👥 **User Feedback**: Collect and analyze user ratings
+- 📈 **Analytics Dashboard**: Aggregate insights across multiple runs
+
+### Quick Start with Langfuse Cloud
+
+1. **Sign up for Langfuse Cloud** (free tier available):
+   - Go to https://cloud.langfuse.com
+   - Create an account (GitHub, Google, or email)
+   - Create a project and get your API keys
+
+2. **Configure API Keys**:
+
+```bash
+# Add to your .env file
+echo "LANGFUSE_PUBLIC_KEY=pk-lf-your-public-key" >> .env
+echo "LANGFUSE_SECRET_KEY=sk-lf-your-secret-key" >> .env
+echo "LANGFUSE_HOST=https://us.cloud.langfuse.com" >> .env
+```
+
+3. **Run Agent with Langfuse**:
+
+```bash
+# Any script with --langfuse flag
+python simple_test.py --langfuse
+python demo_queries.py --langfuse
+python main.py --langfuse
+```
+
+4. **Explore Traces**: Open https://cloud.langfuse.com and click "Traces" to see:
+   - Complete execution timeline
+   - LLM calls with input/output/tokens
+   - Tool executions with arguments/results
+   - Cost per query (in USD)
+   - Success and efficiency scores
+
+### What's Logged to Langfuse
+
+- ✅ **Agent Runs**: Complete traces with query, iterations, tool calls
+- ✅ **LLM Generations**: Every LLM call with full context, tokens, and costs
+- ✅ **Tool Executions**: All tool calls with inputs and outputs
+- ✅ **Cost Tracking**: Automatic USD cost calculation per call
+- ✅ **Quality Scores**: Success (1.0 or 0.0) and efficiency (0.0-1.0) metrics
+
+### Dual Observability
+
+This demo uses **both** OpenTelemetry and Langfuse:
+
+- **OpenTelemetry**: Infrastructure-level tracing (console export)
+- **Langfuse**: LLM-specific analytics (web dashboard)
+
+They work independently and can be enabled separately:
+
+```bash
+# OpenTelemetry only (default)
+python simple_test.py
+
+# Langfuse only
+python simple_test.py --langfuse
+
+# Both (recommended for full visibility)
+python simple_test.py --langfuse --save-telemetry report.txt
+```
+
+### Alternative: Local Langfuse (Optional)
+
+If you prefer to run Langfuse locally instead of using the cloud:
+
+```bash
+# Start local Langfuse with Docker (requires Docker Desktop)
+docker-compose -f docker-compose.langfuse.yml up -d
+
+# Open local dashboard
+open http://localhost:3000
+
+# Stop when done
+docker-compose -f docker-compose.langfuse.yml down
+```
+
+For detailed Langfuse configuration, cost tracking, debugging workflows, and local deployment, see [docs/LANGFUSE.md](docs/LANGFUSE.md).
 
 ## 📋 Prerequisites
 
@@ -460,8 +552,10 @@ Since NeMo Retriever is approved and the cost is reasonable, you can proceed wit
 
 Detailed documentation is available in the [docs/](docs/) folder:
 - **[USAGE.md](docs/USAGE.md)** - Verbosity levels and command-line options
+- **[OBSERVABILITY.md](docs/OBSERVABILITY.md)** - OpenTelemetry instrumentation guide
+- **[LANGFUSE.md](docs/LANGFUSE.md)** - Langfuse LLM observability integration
+- **[NEMO_GUARDRAILS_INTEGRATION.md](docs/NEMO_GUARDRAILS_INTEGRATION.md)** - NeMo Guardrails setup
 - **[ARCHITECTURE_BREAKDOWN.md](docs/ARCHITECTURE_BREAKDOWN.md)** - What runs locally vs NVIDIA API
-- **[STATUS.md](docs/STATUS.md)** - Current project status
 - **[CHANGELOG.md](docs/CHANGELOG.md)** - Version history
 
 ## 📁 Project Structure
