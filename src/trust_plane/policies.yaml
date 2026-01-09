@@ -1,0 +1,67 @@
+# Trust Plane Data Quality Policies
+#
+# These policies are evaluated BEFORE the agent uses data to prevent
+# errors from happening in the first place.
+#
+# Policy Structure:
+#   - name: Policy identifier
+#   - dataset_pattern: Dataset name pattern (* for wildcard)
+#   - namespace: Dataset namespace (* for all)
+#   - enabled: true/false
+#   - rules:
+#       - metric: Metric name from data quality facets
+#         operator: lt|lte|gt|gte|eq|neq
+#         threshold: Numeric threshold value
+#         action: ALLOW|DENY|WARN
+#         reason: Human-readable explanation
+
+policies:
+  # Default policy for ChromaDB vector stores
+  - name: chromadb_freshness_policy
+    namespace: chromadb
+    dataset_pattern: "*.chunks"  # Applies to all .chunks datasets
+    enabled: true
+    rules:
+      # DENY if any document is older than 30 days
+      - metric: max_freshness_days
+        operator: lte
+        threshold: 30
+        action: DENY
+        reason: "Dataset contains stale documents (>30 days old). Please re-ingest source data."
+
+      # WARN if average freshness is over 14 days
+      - metric: avg_freshness_days
+        operator: lte
+        threshold: 14
+        action: WARN
+        reason: "Dataset average freshness is high. Consider refreshing data."
+
+  # Strict policy for production datasets (example)
+  - name: production_strict_policy
+    namespace: chromadb
+    dataset_pattern: "prod_*"
+    enabled: false  # Disabled by default
+    rules:
+      - metric: max_freshness_days
+        operator: lte
+        threshold: 7
+        action: DENY
+        reason: "Production data must be refreshed weekly"
+
+      - metric: row_count
+        operator: gte
+        threshold: 1
+        action: DENY
+        reason: "Dataset is empty"
+
+  # Lenient policy for development (example)
+  - name: development_lenient_policy
+    namespace: chromadb
+    dataset_pattern: "dev_*"
+    enabled: false
+    rules:
+      - metric: max_freshness_days
+        operator: lte
+        threshold: 90
+        action: WARN
+        reason: "Development data is very stale"

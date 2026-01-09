@@ -11,6 +11,8 @@ from config.settings import settings
 from src.rag.vectorstore import VectorStore
 from src.rag.embeddings import EmbeddingModel
 from src.utils.logger import log_info, log_error
+from src.observability.lineage import initialize_lineage, shutdown_lineage
+from src.ingestion.lineage_tracker import track_ingestion
 
 def chunk_document(text, chunk_size=1000, overlap=200):
     """Simple document chunking
@@ -63,13 +65,14 @@ def extract_title(content, filename):
     # Fallback to filename
     return filename.replace('.md', '').replace('_', ' ').title()
 
-def index_documents(vectorstore, embedding_model, docs_dir):
+def index_documents(vectorstore, embedding_model, docs_dir, lineage_tracker=None):
     """Index all markdown files from directory
 
     Args:
         vectorstore: VectorStore instance
         embedding_model: EmbeddingModel instance
         docs_dir: Path to documents directory
+        lineage_tracker: Optional IngestionLineageTracker for lineage tracking
 
     Returns:
         Number of chunks indexed
@@ -87,6 +90,10 @@ def index_documents(vectorstore, embedding_model, docs_dir):
         return 0
 
     log_info(f"Found {len(markdown_files)} documentation files")
+
+    # Track lineage: START event with source files
+    if lineage_tracker:
+        lineage_tracker.start(markdown_files)
 
     all_documents = []
     all_metadatas = []
@@ -108,12 +115,17 @@ def index_documents(vectorstore, embedding_model, docs_dir):
         # Add to batch
         for chunk_idx, chunk in enumerate(chunks):
             all_documents.append(chunk)
-            all_metadatas.append({
+            metadata = {
                 "title": title,
                 "source": file_path.name,
                 "chunk_index": chunk_idx,
                 "total_chunks": len(chunks)
-            })
+            }
+            # Add lineage correlation: producer_run_id for bidirectional traceability
+            if lineage_tracker:
+                metadata["lineage.producer_run_id"] = lineage_tracker.run_id
+                metadata["lineage.producer_job"] = lineage_tracker.job_name
+            all_metadatas.append(metadata)
             all_ids.append(f"{file_path.stem}_{chunk_idx}")
 
     # Generate embeddings
@@ -129,7 +141,15 @@ def index_documents(vectorstore, embedding_model, docs_dir):
         ids=all_ids
     )
 
-    return len(all_documents)
+    # Track lineage: COMPLETE event with output dataset
+    num_chunks = len(all_documents)
+    if lineage_tracker:
+        lineage_tracker.complete(
+            collection_name="internal_docs",
+            num_chunks=num_chunks
+        )
+
+    return num_chunks
 
 def test_search(vectorstore, embedding_model):
     """Test the vector store with a sample query
@@ -163,45 +183,68 @@ def main():
     print("ChromaDB Vector Store Setup")
     print("=" * 60)
 
-    # Create persist directory if it doesn't exist
-    os.makedirs(settings.chroma_persist_dir, exist_ok=True)
-
-    # Initialize components
-    log_info("Initializing embedding model...")
-    embedding_model = EmbeddingModel()
-
-    log_info("Initializing vector store...")
-    vectorstore = VectorStore(
-        persist_directory=settings.chroma_persist_dir
+    # Initialize OpenLineage if enabled
+    initialize_lineage(
+        enabled=settings.lineage_enabled,
+        url=settings.lineage_url,
+        namespace=settings.lineage_namespace
     )
 
-    # Check if already has documents
-    existing_count = vectorstore.collection.count()
-    if existing_count > 0:
-        response = input(f"\nVector store already has {existing_count} documents. Clear and re-index? (y/N): ")
-        if response.lower() == 'y':
-            vectorstore.clear_collection()
-            # Reinitialize
-            vectorstore = VectorStore(persist_directory=settings.chroma_persist_dir)
-        else:
-            log_info("Keeping existing documents")
-            return 0
+    try:
+        # Create persist directory if it doesn't exist
+        os.makedirs(settings.chroma_persist_dir, exist_ok=True)
 
-    # Index documents
-    docs_dir = Path(__file__).parent.parent / "data" / "docs"
-    num_chunks = index_documents(vectorstore, embedding_model, docs_dir)
+        # Initialize components
+        log_info("Initializing embedding model...")
+        embedding_model = EmbeddingModel()
 
-    if num_chunks == 0:
-        log_error("No documents were indexed!")
-        return 1
+        log_info("Initializing vector store...")
+        vectorstore = VectorStore(
+            persist_directory=settings.chroma_persist_dir
+        )
 
-    log_info(f"\n✓ Successfully indexed {num_chunks} document chunks!")
+        # Check if already has documents
+        existing_count = vectorstore.collection.count()
+        if existing_count > 0:
+            response = input(f"\nVector store already has {existing_count} documents. Clear and re-index? (y/N): ")
+            if response.lower() == 'y':
+                vectorstore.clear_collection()
+                # Reinitialize
+                vectorstore = VectorStore(persist_directory=settings.chroma_persist_dir)
+            else:
+                log_info("Keeping existing documents")
+                return 0
 
-    # Test search
-    test_search(vectorstore, embedding_model)
+        # Index documents with lineage tracking
+        docs_dir = Path(__file__).parent.parent / "data" / "docs"
 
-    log_info("\n✓ Vector store setup complete!")
-    return 0
+        # Use lineage tracker context manager
+        with track_ingestion(
+            job_name="document_ingestion",
+            source_dir=str(docs_dir)
+        ) as tracker:
+            num_chunks = index_documents(
+                vectorstore,
+                embedding_model,
+                docs_dir,
+                lineage_tracker=tracker
+            )
+
+        if num_chunks == 0:
+            log_error("No documents were indexed!")
+            return 1
+
+        log_info(f"\n✓ Successfully indexed {num_chunks} document chunks!")
+
+        # Test search
+        test_search(vectorstore, embedding_model)
+
+        log_info("\n✓ Vector store setup complete!")
+        return 0
+
+    finally:
+        # Shutdown OpenLineage
+        shutdown_lineage()
 
 if __name__ == "__main__":
     sys.exit(main())

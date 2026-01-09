@@ -15,6 +15,12 @@ from src.observability import initialize_observability, shutdown_observability
 # Langfuse observability (optional)
 from src.observability.langfuse_integration import initialize_langfuse, shutdown_langfuse
 
+# OpenLineage data lineage (optional)
+from src.observability.lineage import initialize_lineage, shutdown_lineage
+
+# Agent Trust Plane (optional)
+from src.trust_plane import initialize_trust_plane, shutdown_trust_plane
+
 # Configuration
 from config.settings import settings
 from config.policies import APPROVED_LIBRARIES
@@ -275,6 +281,22 @@ Examples:
         if not langfuse_success:
             print("⚠️  Langfuse initialization failed, continuing without it")
 
+    # Initialize OpenLineage data lineage
+    lineage_success = initialize_lineage(
+        enabled=settings.lineage_enabled,
+        url=settings.lineage_url,
+        namespace=settings.lineage_namespace
+    )
+
+    # Initialize Trust Plane (requires lineage)
+    if settings.trust_plane_enabled:
+        trust_plane_success = initialize_trust_plane(
+            enabled=True,
+            policy_file=settings.trust_plane_policy_file
+        )
+        if not trust_plane_success:
+            print("⚠️  Trust Plane initialization failed, continuing without it")
+
     try:
         print_banner()
 
@@ -295,6 +317,13 @@ Examples:
             return 1
 
     finally:
+        # Shutdown Trust Plane
+        if settings.trust_plane_enabled:
+            shutdown_trust_plane()
+
+        # Shutdown OpenLineage
+        shutdown_lineage()
+
         # Shutdown and flush OpenTelemetry
         shutdown_observability()
 

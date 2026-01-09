@@ -105,20 +105,30 @@ class VectorStore:
 
                     # Format results
                     documents = []
+                    producer_run_ids = set()  # Track unique producer run IDs
                     if results["documents"] and len(results["documents"][0]) > 0:
                         for i in range(len(results["documents"][0])):
+                            metadata = results["metadatas"][0][i]
                             doc = {
                                 "content": results["documents"][0][i],
-                                "metadata": results["metadatas"][0][i],
+                                "metadata": metadata,
                                 "score": 1.0 - results["distances"][0][i]  # Convert distance to similarity
                             }
                             documents.append(doc)
 
+                            # Collect producer_run_id for lineage correlation
+                            if "lineage.producer_run_id" in metadata:
+                                producer_run_ids.add(metadata["lineage.producer_run_id"])
+
                     # Add result attributes to span
-                    add_span_attributes(span, {
+                    span_attrs = {
                         RAG_RESULTS_COUNT: len(documents),
                         RAG_TOP_SCORE: max((d["score"] for d in documents), default=0.0)
-                    })
+                    }
+                    # Add lineage correlation attributes
+                    if producer_run_ids:
+                        span_attrs["lineage.input_run_ids"] = ",".join(list(producer_run_ids)[:5])  # Limit to 5
+                    add_span_attributes(span, span_attrs)
 
                     log_debug(f"Found {len(documents)} results")
                     return documents

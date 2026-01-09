@@ -1,5 +1,17 @@
 """Internal Documentation Search Tool (RAG)"""
 from src.tools.base import BaseTool
+from src.trust_plane import authorize_dataset_access, is_trust_plane_enabled
+import logging
+
+# OpenTelemetry imports for lineage correlation
+try:
+    from opentelemetry import trace
+    from src.observability import is_initialized as is_otel_initialized
+    OTEL_AVAILABLE = True
+except ImportError:
+    OTEL_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 class InternalDocsSearch(BaseTool):
     """Search internal documentation using RAG"""
@@ -51,6 +63,29 @@ class InternalDocsSearch(BaseTool):
             dict with success, data (search results), and error fields
         """
         try:
+            # Trust Plane: Check authorization before accessing data
+            if is_trust_plane_enabled():
+                decision = authorize_dataset_access(
+                    namespace="chromadb",
+                    dataset_name="internal_docs.chunks",
+                    tool_name="internal_docs_search"
+                )
+
+                if not decision.allowed:
+                    logger.error(f"Trust Plane DENIED access: {decision.reason}")
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": (
+                            f"Access to documentation data denied by Trust Plane: "
+                            f"{decision.reason}. Please refresh the documentation dataset."
+                        ),
+                        "trust_plane_decision": decision.to_dict()
+                    }
+
+                if decision.action == "WARN":
+                    logger.warning(f"Trust Plane WARNING: {decision.reason}")
+
             # Query vector store
             results = self.vectorstore.similarity_search(
                 query_text=query,
@@ -69,8 +104,9 @@ class InternalDocsSearch(BaseTool):
                     "error": None
                 }
 
-            # Format results
+            # Format results and extract lineage correlation
             formatted_docs = []
+            producer_run_ids = set()
             for i, doc in enumerate(results, 1):
                 formatted_docs.append({
                     "rank": i,
@@ -79,6 +115,20 @@ class InternalDocsSearch(BaseTool):
                     "source": doc["metadata"].get("source", "Unknown"),
                     "relevance_score": round(doc["score"], 3)
                 })
+                # Collect producer_run_id for lineage correlation
+                if "lineage.producer_run_id" in doc["metadata"]:
+                    producer_run_ids.add(doc["metadata"]["lineage.producer_run_id"])
+
+            # Add lineage correlation to current OTel span if available
+            if OTEL_AVAILABLE and is_otel_initialized() and producer_run_ids:
+                current_span = trace.get_current_span()
+                if current_span and current_span.is_recording():
+                    # Add input run IDs to span for bidirectional traceability
+                    current_span.set_attribute(
+                        "lineage.input_run_ids",
+                        ",".join(list(producer_run_ids)[:5])  # Limit to 5
+                    )
+                    logger.debug(f"Added lineage correlation to span: {len(producer_run_ids)} producer run IDs")
 
             return {
                 "success": True,
