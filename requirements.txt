@@ -21,6 +21,10 @@ opentelemetry-instrumentation-openai>=0.20.0
 # Langfuse (LLM Observability - Optional)
 langfuse>=2.0.0
 
+# OpenLineage (Data Lineage - Optional)
+openlineage-python>=1.6.0
+openlineage-integration-common>=1.6.0
+
 # Utilities
 python-dotenv>=1.0.0
 pyyaml>=6.0

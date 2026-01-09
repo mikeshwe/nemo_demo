@@ -1,4 +1,5 @@
 """Main GenAIOps Agent class"""
+import uuid
 from src.orchestrator.graph import create_agent_graph
 from src.utils.logger import log_info, log_debug
 
@@ -32,6 +33,20 @@ try:
     LANGFUSE_AVAILABLE = True
 except ImportError:
     LANGFUSE_AVAILABLE = False
+
+# OpenLineage imports
+try:
+    from src.observability.lineage import (
+        set_lineage_context,
+        clear_lineage_context,
+        get_current_run_id,
+        is_lineage_enabled,
+        emit_job_event
+    )
+    from opentelemetry import trace
+    LINEAGE_AVAILABLE = True
+except ImportError:
+    LINEAGE_AVAILABLE = False
 
 class GenAIOpsAgent:
     """GenAIOps Documentation Assistant Agent
@@ -74,6 +89,12 @@ class GenAIOpsAgent:
         """
         log_info(f"Running agent on query: {query[:100]}...")
 
+        # Set lineage context for this agent run
+        if LINEAGE_AVAILABLE and is_lineage_enabled():
+            run_id = str(uuid.uuid4())
+            set_lineage_context(run_id, "agent_query")
+            log_debug(f"Lineage context set: run_id={run_id[:8]}...")
+
         # Initialize state
         initial_state = {
             "query": query,
@@ -88,18 +109,23 @@ class GenAIOpsAgent:
             "final_answer": ""
         }
 
-        # Create Langfuse trace (wraps entire execution)
-        if LANGFUSE_AVAILABLE and is_langfuse_enabled():
-            with trace_agent_run(
-                query=query,
-                metadata={
-                    "max_iterations": self.max_iterations,
-                    "tool_count": len(self.tool_registry.tools)
-                }
-            ):
+        try:
+            # Create Langfuse trace (wraps entire execution)
+            if LANGFUSE_AVAILABLE and is_langfuse_enabled():
+                with trace_agent_run(
+                    query=query,
+                    metadata={
+                        "max_iterations": self.max_iterations,
+                        "tool_count": len(self.tool_registry.tools)
+                    }
+                ):
+                    return self._execute_agent(initial_state, query)
+            else:
                 return self._execute_agent(initial_state, query)
-        else:
-            return self._execute_agent(initial_state, query)
+        finally:
+            # Clear lineage context
+            if LINEAGE_AVAILABLE and is_lineage_enabled():
+                clear_lineage_context()
 
     def _execute_agent(self, initial_state, query):
         """Execute agent with both OTEL and Langfuse support"""
@@ -112,6 +138,15 @@ class GenAIOpsAgent:
                     AGENT_QUERY: query[:200],  # Truncate for readability
                     AGENT_MAX_ITERATIONS: self.max_iterations
                 })
+
+                # Add lineage context attributes for correlation
+                if LINEAGE_AVAILABLE and is_lineage_enabled():
+                    run_id = get_current_run_id()
+                    if run_id:
+                        span.set_attribute("lineage.run_id", run_id)
+                        span.set_attribute("lineage.job_name", "agent_query")
+                        log_debug(f"OTel span tagged with lineage run_id: {run_id[:8]}...")
+
                 span.add_event(EVENT_AGENT_START)
 
                 result = self._run_with_tracing(span, initial_state)
@@ -182,6 +217,10 @@ class GenAIOpsAgent:
             })
             span.add_event(EVENT_AGENT_COMPLETE)
 
+            # Emit OpenLineage COMPLETE event with input datasets
+            if LINEAGE_AVAILABLE and is_lineage_enabled():
+                self._emit_agent_lineage_event(span, final_state)
+
             log_info(f"✓ Agent completed: {iterations} iterations, {tool_calls} tool calls")
 
             return {
@@ -248,6 +287,61 @@ class GenAIOpsAgent:
                 "success": False,
                 "error": str(e)
             }
+
+    def _emit_agent_lineage_event(self, span, final_state):
+        """Emit OpenLineage event for agent run with input datasets
+
+        Args:
+            span: Current OpenTelemetry span
+            final_state: Final state after agent execution
+        """
+        try:
+            # Extract input run IDs from span attributes
+            input_run_ids_str = span.attributes.get("lineage.input_run_ids", "")
+            if not input_run_ids_str:
+                log_debug("No input datasets accessed by agent, skipping lineage event")
+                return
+
+            input_run_ids = input_run_ids_str.split(",")
+
+            # Build input datasets list
+            inputs = []
+            for producer_run_id in input_run_ids:
+                inputs.append({
+                    "namespace": "chromadb",
+                    "name": "internal_docs.chunks",
+                    "facets": {
+                        "producerRunId": {
+                            "_producer": "https://github.com/OpenLineage/OpenLineage/tree/1.2.0/client/python",
+                            "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/ProducerRunIdFacet.json",
+                            "producerRunId": producer_run_id.strip()
+                        }
+                    }
+                })
+
+            # Get current run ID
+            run_id = get_current_run_id()
+            if not run_id:
+                log_debug("No lineage run_id set, skipping lineage event")
+                return
+
+            # Emit COMPLETE event
+            emit_job_event(
+                job_name="agent_query",
+                run_id=run_id,
+                event_type="COMPLETE",
+                inputs=inputs,
+                metadata={
+                    "iterations": final_state.get("iteration_count", 0),
+                    "tool_calls": final_state.get("tool_call_count", 0),
+                    "query": final_state.get("query", "")[:200]
+                }
+            )
+
+            log_debug(f"Emitted OpenLineage event for agent run with {len(inputs)} input datasets")
+
+        except Exception as e:
+            log_debug(f"Failed to emit agent lineage event: {e}")
 
     def list_available_tools(self):
         """Get list of available tool names

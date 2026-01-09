@@ -9,7 +9,12 @@
       "Bash(ls:*)",
       "Bash(find:*)",
       "Bash(git init:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(docker compose:*)",
+      "Bash(curl:*)",
+      "Bash(docker-compose:*)",
+      "Bash(chmod:*)",
+      "Bash(tee:*)"
     ]
   }
 }

@@ -1,0 +1,128 @@
+================================================================================
+TELEMETRY SUMMARY
+================================================================================
+
+📊 Overall Statistics:
+  Total Spans: 49
+  Agent Runs: 3
+  Iterations: 6
+  Tool Calls: 6
+  LLM API Calls: 19
+
+🤖 Agent Execution:
+  Query: Is NeMo Retriever approved for production?
+  Iterations: 2
+  Tool Calls: 1
+  Success: True
+  Duration: 3648.86 ms
+  Query: What is the cost for running a medium model with 5 million tokens per month?
+  Iterations: 2
+  Tool Calls: 1
+  Success: True
+  Duration: 6582.94 ms
+  Query: What are the GPU requirements for NeMo Retriever?
+  Iterations: 2
+  Tool Calls: 1
+  Success: True
+  Duration: 4723.81 ms
+
+🧠 LLM API Calls:
+  Total Calls: 19
+  Total Tokens: 11266
+  Input Tokens: 10943
+  Output Tokens: 323
+  Avg Duration: 843.58 ms
+
+================================================================================
+EXECUTION TIMELINE
+================================================================================
+
+agent.run                      [████████                                ]  3648.86 ms
+  agent.iteration                [████                                    ]  1731.18 ms
+    guardrails.input_check         [█                                       ]   435.95 ms
+      openai.chat                    [█                                       ]   419.09 ms
+    openai.chat                    [ ██                                     ]  1196.38 ms
+  agent.tool_execution           [    █                                   ]     0.31 ms
+    tool.security_policy_checker   [    █                                   ]     0.25 ms
+      tool.execute.security_policy_checker [    █                                   ]     0.05 ms
+  agent.iteration                [    ████                                ]  1912.99 ms
+    openai.chat                    [    ██                                  ]  1091.72 ms
+    guardrails.output_check        [      █                                 ]   820.73 ms
+      openai.chat                    [      █                                 ]   796.44 ms
+guardrails.output_check        [        █                               ]   341.64 ms
+  openai.chat                    [        █                               ]   325.17 ms
+agent.run                      [         ███████████████                ]  6582.94 ms
+  agent.iteration                [         ███                            ]  1368.72 ms
+    guardrails.input_check         [         █                              ]   352.64 ms
+      openai.chat                    [         █                              ]   334.13 ms
+    openai.chat                    [          ██                            ]  1015.72 ms
+  agent.tool_execution           [            █                           ]     0.32 ms
+    tool.cost_estimator            [            █                           ]     0.27 ms
+      tool.execute.cost_estimator    [            █                           ]     0.05 ms
+  agent.iteration                [            ████████████                ]  5211.18 ms
+    openai.chat                    [            ████████                    ]  3506.10 ms
+    guardrails.output_check        [                     ████               ]  1704.71 ms
+      openai.chat                    [                     ██                 ]   884.85 ms
+      openai.chat                    [                       █                ]   423.85 ms
+      openai.chat                    [                        █               ]   354.88 ms
+guardrails.output_check        [                         ██             ]  1000.96 ms
+  openai.chat                    [                         █              ]   315.36 ms
+  openai.chat                    [                          █             ]   305.64 ms
+  openai.chat                    [                           █            ]   348.35 ms
+agent.run                      [                           ███████████  ]  4723.81 ms
+  agent.iteration                [                           ███          ]  1489.20 ms
+    guardrails.input_check         [                           █            ]   295.05 ms
+      openai.chat                    [                           █            ]   272.25 ms
+    openai.chat                    [                            ██          ]  1193.60 ms
+  agent.tool_execution           [                               █        ]   246.12 ms
+    tool.internal_docs_search      [                               █        ]   246.04 ms
+      tool.execute.internal_docs_search [                               █        ]   245.87 ms
+        rag.vector_search              [                               █        ]   245.77 ms
+          rag.embedding.query            [                               █        ]   240.82 ms
+          rag.chromadb_query             [                                █       ]     4.80 ms
+  agent.iteration                [                                ███████ ]  2985.07 ms
+    openai.chat                    [                                █████   ]  2146.29 ms
+    guardrails.output_check        [                                     ██ ]   838.35 ms
+      openai.chat                    [                                     █  ]   814.51 ms
+guardrails.output_check        [                                       █]   303.36 ms
+  openai.chat                    [                                       █]   283.74 ms
+
+================================================================================
+TOKEN USAGE PER LLM CALL
+================================================================================
+
+Call  1: [█████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   351 tokens (in: 344, out: 7)
+Call  2: [███████████████████████████████████░░░░░░░░░░░░░░░]   908 tokens (in: 889, out: 19)
+Call  3: [███████████████████████████████████████░░░░░░░░░░░]  1030 tokens (in: 1017, out: 13)
+Call  4: [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   375 tokens (in: 368, out: 7)
+Call  5: [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   375 tokens (in: 368, out: 7)
+Call  6: [█████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   352 tokens (in: 346, out: 6)
+Call  7: [███████████████████████████████████░░░░░░░░░░░░░░░]   918 tokens (in: 896, out: 22)
+Call  8: [█████████████████████████████████████████████░░░░░]  1177 tokens (in: 1082, out: 95)
+Call  9: [██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   467 tokens (in: 459, out: 8)
+Call 10: [█████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   353 tokens (in: 346, out: 7)
+Call 11: [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   366 tokens (in: 356, out: 10)
+Call 12: [██████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   467 tokens (in: 459, out: 8)
+Call 13: [█████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   353 tokens (in: 346, out: 7)
+Call 14: [██████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   366 tokens (in: 356, out: 10)
+Call 15: [█████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   353 tokens (in: 347, out: 6)
+Call 16: [███████████████████████████████████░░░░░░░░░░░░░░░]   916 tokens (in: 891, out: 25)
+Call 17: [██████████████████████████████████████████████████]  1291 tokens (in: 1239, out: 52)
+Call 18: [████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   424 tokens (in: 417, out: 7)
+Call 19: [████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   424 tokens (in: 417, out: 7)
+
+================================================================================
+TOOL EXECUTION TIMING
+================================================================================
+
+security_policy_checker       
+  Count:   2   Avg:    0.15 ms   Min:    0.05 ms   Max:    0.25 ms
+  [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]
+
+cost_estimator                
+  Count:   2   Avg:    0.16 ms   Min:    0.05 ms   Max:    0.27 ms
+  [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]
+
+internal_docs_search          
+  Count:   2   Avg:  245.96 ms   Min:  245.87 ms   Max:  246.04 ms
+  [███████████████████████████████████████░]

@@ -1,0 +1,110 @@
+{
+  "description": "Ground truth dataset for LLM Judge validation",
+  "version": "1.0",
+  "created": "2026-01-07",
+  "entries": [
+    {
+      "query": "Is NeMo Retriever approved for production use?",
+      "expected_answer": "Yes, NeMo Retriever is approved for production use. It requires Python 3.10+ and CUDA 12.0+. The recommended GPU is NVIDIA A100 or H100 with at least 40GB VRAM. It supports vector databases including ChromaDB, Milvus, and Pinecone.",
+      "key_facts": [
+        "NeMo Retriever is approved for production",
+        "Requires Python 3.10+",
+        "Requires CUDA 12.0+",
+        "Recommended GPU: NVIDIA A100 or H100",
+        "Minimum 40GB VRAM",
+        "Supports ChromaDB, Milvus, and Pinecone"
+      ],
+      "common_errors": [
+        {
+          "type": "outdated_version",
+          "description": "Stating Python 3.8 instead of 3.10+",
+          "source": "Stale documentation from 2023"
+        },
+        {
+          "type": "outdated_version",
+          "description": "Stating CUDA 11.0 instead of 12.0+",
+          "source": "Stale documentation from 2023"
+        },
+        {
+          "type": "wrong_gpu",
+          "description": "Recommending older GPUs like V100",
+          "source": "Outdated hardware recommendations"
+        }
+      ],
+      "metadata": {
+        "category": "deployment",
+        "difficulty": "medium",
+        "last_updated": "2025-12-01"
+      }
+    },
+    {
+      "query": "What are the hardware requirements for NeMo Retriever?",
+      "expected_answer": "NeMo Retriever requires NVIDIA A100 or H100 GPUs with at least 40GB VRAM. For optimal performance, use H100 GPUs with 80GB VRAM. CUDA 12.0 or higher is required. The system should have at least 128GB RAM for large-scale deployments.",
+      "key_facts": [
+        "Requires NVIDIA A100 or H100 GPUs",
+        "Minimum 40GB VRAM",
+        "CUDA 12.0+ required",
+        "128GB RAM for large deployments",
+        "H100 with 80GB VRAM for optimal performance"
+      ],
+      "common_errors": [
+        {
+          "type": "outdated_cuda",
+          "description": "Mentioning CUDA 11.0 support",
+          "source": "Old documentation"
+        },
+        {
+          "type": "insufficient_vram",
+          "description": "Suggesting 16GB VRAM is sufficient",
+          "source": "Incorrect sizing"
+        }
+      ],
+      "metadata": {
+        "category": "hardware",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "query": "How do I deploy NeMo Retriever?",
+      "expected_answer": "To deploy NeMo Retriever: 1) Install Python 3.10+ and CUDA 12.0+, 2) Install NeMo Retriever via pip or Docker, 3) Configure your vector database (ChromaDB, Milvus, or Pinecone), 4) Set up your embedding model, 5) Deploy using Kubernetes with GPU node pools or Docker Compose. Always use TLS for production deployments.",
+      "key_facts": [
+        "Python 3.10+ and CUDA 12.0+ required",
+        "Supports pip or Docker installation",
+        "Configure vector database (ChromaDB/Milvus/Pinecone)",
+        "Deploy with Kubernetes or Docker Compose",
+        "Use TLS for production"
+      ],
+      "common_errors": [
+        {
+          "type": "wrong_python",
+          "description": "Python 3.8 mentioned instead of 3.10+",
+          "source": "Stale deployment docs"
+        },
+        {
+          "type": "missing_tls",
+          "description": "Not mentioning TLS requirement",
+          "source": "Incomplete security guidance"
+        }
+      ],
+      "metadata": {
+        "category": "deployment",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "query": "What vector databases does NeMo Retriever support?",
+      "expected_answer": "NeMo Retriever supports ChromaDB, Milvus, and Pinecone. ChromaDB is recommended for development and small-scale deployments. Milvus is recommended for large-scale production deployments requiring distributed search. Pinecone is a managed cloud option.",
+      "key_facts": [
+        "Supports ChromaDB, Milvus, and Pinecone",
+        "ChromaDB for development and small-scale",
+        "Milvus for large-scale production",
+        "Pinecone is managed cloud option"
+      ],
+      "common_errors": [],
+      "metadata": {
+        "category": "configuration",
+        "difficulty": "easy"
+      }
+    }
+  ]
+}

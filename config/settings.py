@@ -25,6 +25,15 @@ class Settings:
         self.langfuse_secret_key = os.getenv("LANGFUSE_SECRET_KEY")
         self.langfuse_host = os.getenv("LANGFUSE_HOST", "http://localhost:3000")
 
+        # OpenLineage Configuration (optional)
+        self.lineage_enabled = os.getenv("OPENLINEAGE_ENABLED", "false").lower() == "true"
+        self.lineage_url = os.getenv("OPENLINEAGE_URL", "http://localhost:5000")
+        self.lineage_namespace = os.getenv("OPENLINEAGE_NAMESPACE", "genaiops-demo")
+
+        # Trust Plane Configuration (optional)
+        self.trust_plane_enabled = os.getenv("TRUST_PLANE_ENABLED", "false").lower() == "true"
+        self.trust_plane_policy_file = os.getenv("TRUST_PLANE_POLICY_FILE", "src/trust_plane/policies.yaml")
+
     def validate(self):
         """Basic validation (MVP version)"""
         if not self.nvidia_api_key:
