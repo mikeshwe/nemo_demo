@@ -147,6 +147,58 @@ The agent uses a **ReAct (Reasoning + Acting)** pattern with input/output guardr
    └───────────────┘
 ```
 
+### How producer_run_id Enables Lineage
+
+The `producer_run_id` is the key mechanism that links RAG chunks to agents, enabling bidirectional traceability:
+
+**1. During Ingestion:**
+```python
+# Ingestion job stores lineage metadata in each chunk
+chunk_metadata = {
+    "title": "NeMo Retriever Guide",
+    "source": "stale_nemo_guide.md",
+    "lineage.producer_run_id": "abc123..."  # UUID of ingestion job run
+}
+# Stored in ChromaDB with the document chunk
+```
+
+**2. During Agent Query:**
+```python
+# Tool retrieves chunks from ChromaDB
+chunks = vectorstore.search("What is NeMo?")
+# Each chunk contains: chunk['metadata']['lineage.producer_run_id'] = "abc123..."
+
+# Tool extracts producer_run_ids and propagates via OTel span
+span.set_attribute("lineage.input_run_ids", "abc123,...")
+
+# Agent reads span attribute and emits OpenLineage event
+openlineage_event = {
+    "inputs": [{
+        "namespace": "chromadb",
+        "name": "internal_docs.chunks",
+        "facets": {
+            "producerRunId": {"producerRunId": "abc123..."}  # Same ID!
+        }
+    }]
+}
+```
+
+**3. In Marquez:**
+```
+Lineage Graph:
+  ingestion_job (abc123...) → chromadb/internal_docs.chunks → agent_query
+
+This enables:
+  - Backward: agent_query → dataset → ingestion_job (root cause)
+  - Forward: dataset → agent_query (impact analysis)
+```
+
+**Key Points:**
+- The `producer_run_id` flows from **ChromaDB metadata** → **OTel span attribute** → **OpenLineage event** → **Marquez storage**
+- Without it, we'd have no way to connect RAG chunks back to their source or forward to their consumers
+- This is what enables Trust Plane to check data quality and perform automatic root cause analysis
+- Run with `-vv` flag to see the actual metadata at each step
+
 ## 🔭 AI Observability
 
 This demo includes comprehensive OpenTelemetry instrumentation for AI observability, demonstrating production-ready monitoring practices for agentic AI systems.

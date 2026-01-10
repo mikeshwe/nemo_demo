@@ -151,6 +151,10 @@ class GenAIOpsAgent:
 
                 result = self._run_with_tracing(span, initial_state)
 
+                # Capture span attributes for debugging/display
+                if hasattr(span, 'attributes') and span.attributes:
+                    result['_otel_span_attributes'] = dict(span.attributes)
+
                 # Add Langfuse scores after execution
                 if LANGFUSE_AVAILABLE and is_langfuse_enabled():
                     self._add_langfuse_scores(result)
