@@ -119,7 +119,7 @@ class InternalDocsSearch(BaseTool):
                 if "lineage.producer_run_id" in doc["metadata"]:
                     producer_run_ids.add(doc["metadata"]["lineage.producer_run_id"])
 
-            # Add lineage correlation to current OTel span if available
+            # Add lineage correlation to OTel span for OpenLineage emission
             if OTEL_AVAILABLE and is_otel_initialized() and producer_run_ids:
                 current_span = trace.get_current_span()
                 if current_span and current_span.is_recording():

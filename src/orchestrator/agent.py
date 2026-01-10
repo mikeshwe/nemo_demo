@@ -266,6 +266,10 @@ class GenAIOpsAgent:
             iterations = final_state.get("iteration_count", 0)
             observations = final_state.get("observations", "")
 
+            # Emit OpenLineage COMPLETE event with input datasets
+            if LINEAGE_AVAILABLE and is_lineage_enabled():
+                self._emit_agent_lineage_event(None, final_state)
+
             log_info(f"✓ Agent completed: {iterations} iterations, {tool_calls} tool calls")
 
             return {
@@ -291,22 +295,29 @@ class GenAIOpsAgent:
     def _emit_agent_lineage_event(self, span, final_state):
         """Emit OpenLineage event for agent run with input datasets
 
+        Requires OpenTelemetry to be initialized for span attributes.
+
         Args:
-            span: Current OpenTelemetry span
+            span: Current OpenTelemetry span (required)
             final_state: Final state after agent execution
         """
         try:
-            # Extract input run IDs from span attributes
+            # Extract input run IDs from OTel span attributes
+            if not span or not hasattr(span, 'attributes'):
+                log_debug("No OTel span available - cannot emit lineage event")
+                log_debug("OpenTelemetry must be initialized for lineage correlation")
+                return
+
             input_run_ids_str = span.attributes.get("lineage.input_run_ids", "")
             if not input_run_ids_str:
                 log_debug("No input datasets accessed by agent, skipping lineage event")
                 return
 
-            input_run_ids = input_run_ids_str.split(",")
+            input_run_ids_set = set(input_run_ids_str.split(","))
 
             # Build input datasets list
             inputs = []
-            for producer_run_id in input_run_ids:
+            for producer_run_id in input_run_ids_set:
                 inputs.append({
                     "namespace": "chromadb",
                     "name": "internal_docs.chunks",

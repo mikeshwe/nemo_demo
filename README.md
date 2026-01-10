@@ -1,18 +1,114 @@
 # GenAIOps Documentation Assistant Agent
 
-A production-ready Agentic AI prototype demonstrating NVIDIA's accelerated computing technologies for Generative AI Operations (GenAIOps). This agent functions as a **"DevOps Knowledge Agent"** that performs complex, multi-step queries using reasoning, specialized tools, and safety guardrails.
+A production-ready Agentic AI prototype demonstrating **data quality management** for AI agents with **Trust Plane (proactive)** and **LLM Judge (reactive)** validation patterns. This demo showcases how **Trust Plane moves data lineage from passive metadata to active governance middleware**, using lineage data to enforce quality policies before queries execute. Features **true bidirectional traceability** with OpenLineage: **forward lineage** (data issue → impacted tools) for impact analysis and **backward lineage** (agent error → stale data) for root cause analysis. Real ChromaDB and Marquez integration.
 
 ## 🚀 Overview
 
 This project showcases:
-- **Hybrid Deployment**: Local LangGraph orchestration + Remote NVIDIA LLM API inference
-- **ReAct Loop**: Reasoning and Acting pattern for multi-step problem solving
-- **RAG (Retrieval-Augmented Generation)**: ChromaDB-powered document search
-- **Agent Tools**: Security policy checking, cost estimation, and documentation search
-- **NeMo Guardrails**: Enterprise-grade safety validation with NVIDIA's NeMo Guardrails
+- **Trust Plane (Proactive)**: Pre-query authorization that prevents stale data from reaching agents
+- **LLM Judge (Reactive)**: Post-query validation that detects errors in agent responses
+- **Bidirectional Traceability**:
+  - **Forward**: Data issue → impacted tools (impact analysis)
+  - **Backward**: Agent error → stale data (root cause analysis)
+- **OpenLineage Integration**: Real-time data lineage with Marquez visualization
+- **Agentic Architecture**: LangGraph orchestration with ReAct loop, RAG, and specialized tools
+- **NeMo Guardrails**: Input/output validation with NVIDIA's NeMo Guardrails framework
 - **AI Observability**: Dual observability with OpenTelemetry (infrastructure) and Langfuse (LLM analytics)
 
+## 🎯 Quick Start: Main Demo
+
+The **main demo** shows proactive vs reactive data quality management:
+
+```bash
+# Start Marquez backend for lineage visualization
+docker-compose -f docker-compose-marquez.yml up -d
+
+# Run the full traceability demo (default: both modes)
+python3 demo_full_traceability.py
+
+# Or run specific modes:
+python3 demo_full_traceability.py --mode proactive  # Trust Plane blocks stale data
+python3 demo_full_traceability.py --mode reactive   # LLM Judge detects errors
+python3 demo_full_traceability.py --mode both       # Side-by-side comparison
+```
+
+### What the Demo Shows
+
+**Step 1: Ingestion with Lineage Tracking**:
+- 📝 Ingests stale document (45 days old) to ChromaDB
+- 📝 Tracks producer_run_id in document metadata
+- 📝 Emits OpenLineage events with data quality metrics
+
+**Step 2: Bootstrap Lineage Graph**:
+- 🔧 Runs test query to establish tool→dataset dependencies
+- 🔧 Emits OpenLineage events for tool execution
+- 🔧 Builds lineage graph: ingestion → dataset → tool → agent
+- 🔧 Enables forward impact analysis (realistic production pattern)
+
+**Step 3: Impact Analysis (Forward Lineage)**:
+- 📊 Queries Marquez for tools consuming the stale dataset
+- 📊 Identifies affected tools from actual lineage graph
+- 📊 Predicts downstream impact before user queries
+- 📊 Demonstrates forward lineage: data issue → impacted tools
+
+**Step 4: Proactive Mode (Trust Plane)**:
+- ✅ Checks data quality BEFORE agent query
+- ✅ Blocks queries if data is stale (>30 days)
+- ✅ Agent never sees outdated information
+- ✅ Uses backward lineage for automatic root cause
+
+**Step 4: Reactive Mode (LLM Judge)**:
+- ❌ Agent uses stale data to generate answer
+- ❌ User sees incorrect information
+- ✅ LLM Judge detects error AFTER response
+- ✅ Uses backward lineage for automatic root cause (too late!)
+
+**Key Insight**: Bootstrap builds lineage graph → Forward analysis predicts impact → Proactive prevents errors → Reactive detects them (too late)
+
+See [README_FULL_TRACEABILITY.md](README_FULL_TRACEABILITY.md) for detailed demo guide.
+
 ## 🏗️ Architecture
+
+### Data Quality Management Flow
+
+```
+┌─────────────────────┐
+│   Agent Query       │
+└──────────┬──────────┘
+           │
+    ┌──────▼──────────┐
+    │  Trust Plane    │ ◄─── Proactive: Check data quality BEFORE query
+    │  (Enforcer)     │      ✓ Block if stale (>30 days)
+    └──────┬──────────┘      ✓ Automatic root cause
+           │
+    ┌──────▼──────────┐
+    │  RAG Retrieval  │ ◄─── producer_run_id in metadata
+    │   (ChromaDB)    │      Links data → ingestion job
+    └──────┬──────────┘
+           │
+    ┌──────▼──────────┐
+    │  Agent Answer   │
+    └──────┬──────────┘
+           │
+    ┌──────▼──────────┐
+    │   LLM Judge     │ ◄─── Reactive: Validate answer AFTER response
+    │  (Validation)   │      ✗ Detect outdated info (too late)
+    └──────┬──────────┘
+           │
+    ┌──────▼──────────┐
+    │  OpenLineage    │ ◄─── Bidirectional traceability
+    │  Root Cause     │      Agent error → stale file
+    └─────────────────┘
+           │
+    ┌──────▼──────────┐
+    │   Marquez UI    │ ◄─── Visual lineage graph
+    │  (Visualization)│      http://localhost:3001
+    └─────────────────┘
+```
+
+### Agentic AI Architecture
+
+The agent uses a **ReAct (Reasoning + Acting)** pattern with input/output guardrails:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -20,8 +116,13 @@ This project showcases:
 └────────────────────┬────────────────────────────────────────┘
                      │
            ┌─────────▼──────────┐
+           │  NeMo Guardrails   │  ◄─── Input validation
+           │   (Input Check)    │
+           └─────────┬──────────┘
+                     │
+           ┌─────────▼──────────┐
            │  LangGraph Agent   │  (Local - macOS)
-           │   Orchestrator     │
+           │   Orchestrator     │  ReAct Loop
            └─────────┬──────────┘
                      │
         ┌────────────┼────────────┐
@@ -32,18 +133,18 @@ This project showcases:
    └────┬────┘  └────────┘  └─────────┘
         │
    ┌────▼────┐
-   │ChromaDB │  (Local Vector Store)
+   │ChromaDB │  (Vector Store + Lineage Metadata)
    └─────────┘
-
-      ┌─────────────────┐
-      │  NVIDIA NIM API │  (Remote GPU Inference)
-      │   Llama 3.1 70B │
-      └─────────────────┘
-
-   ┌────────────┐
-   │NeMo        │  (Local Safety Layer)
-   │Guardrails  │
-   └────────────┘
+        │
+      ┌─▼─────────────────┐
+      │  NVIDIA NIM API   │  (Remote GPU Inference)
+      │  Llama 3.1 70B    │
+      └───────────────────┘
+        │
+   ┌────▼──────────┐
+   │NeMo Guardrails│  ◄─── Output validation
+   │ (Output Check)│
+   └───────────────┘
 ```
 
 ## 🔭 AI Observability
@@ -368,9 +469,39 @@ python scripts/test_nvidia_api.py
 
 ## 🎯 Usage
 
+### Main Demo: Data Quality Management (Proactive vs Reactive)
+
+**Recommended starting point** - Run the full traceability demo:
+
+```bash
+# Start Marquez backend (required for lineage visualization)
+docker-compose -f docker-compose-marquez.yml up -d
+
+# Run the demo (default: both modes for comparison)
+python3 demo_full_traceability.py
+
+# Run specific modes:
+python3 demo_full_traceability.py --mode proactive  # Trust Plane prevents stale data
+python3 demo_full_traceability.py --mode reactive   # LLM Judge detects errors after
+python3 demo_full_traceability.py --mode both       # Side-by-side comparison
+
+# Verbose mode for detailed tracing:
+python3 demo_full_traceability.py --mode both -v    # Show tracking details
+python3 demo_full_traceability.py --mode both -vv   # Show all metadata
+```
+
+**Output includes**:
+- Real-time data ingestion with lineage tracking
+- Proactive blocking or reactive detection
+- Automatic root cause analysis via bidirectional traceability
+- Live Marquez API queries showing real data quality metrics
+- Instructions for exploring Marquez UI
+
+**See**: [README_FULL_TRACEABILITY.md](README_FULL_TRACEABILITY.md) and [QUICK_START_MODES.md](QUICK_START_MODES.md)
+
 ### Quick Test
 
-Run a simple test to verify everything works:
+Run a simple test to verify the agent works:
 
 ```bash
 python3 simple_test.py
@@ -383,7 +514,7 @@ python3 simple_test.py --vv         # Show all details
 
 ### Demo Queries
 
-Run multiple demo queries:
+Run multiple agent queries to test different tools:
 
 ```bash
 python3 demo_queries.py
@@ -550,7 +681,16 @@ Since NeMo Retriever is approved and the cost is reasonable, you can proceed wit
 
 ## 📚 Documentation
 
-Detailed documentation is available in the [docs/](docs/) folder:
+### Main Demo Documentation
+- **[README_FULL_TRACEABILITY.md](README_FULL_TRACEABILITY.md)** - Full traceability demo guide
+- **[QUICK_START_MODES.md](QUICK_START_MODES.md)** - Quick reference for demo modes
+- **[BIDIRECTIONAL_TRACEABILITY.md](BIDIRECTIONAL_TRACEABILITY.md)** - Architecture and data lineage
+- **[DATA_QUALITY_SUMMARY.md](DATA_QUALITY_SUMMARY.md)** - Trust Plane overview
+- **[LLM_JUDGE_VALIDATION.md](LLM_JUDGE_VALIDATION.md)** - LLM Judge validation framework
+- **[OTEL_OPENLINEAGE_CORRELATION.md](OTEL_OPENLINEAGE_CORRELATION.md)** - OTel + OpenLineage integration
+- **[MARQUEZ_SETUP.md](MARQUEZ_SETUP.md)** - Marquez backend setup
+
+### Agent & Observability Documentation
 - **[USAGE.md](docs/USAGE.md)** - Verbosity levels and command-line options
 - **[OBSERVABILITY.md](docs/OBSERVABILITY.md)** - OpenTelemetry instrumentation guide
 - **[LANGFUSE.md](docs/LANGFUSE.md)** - Langfuse LLM observability integration
@@ -562,43 +702,95 @@ Detailed documentation is available in the [docs/](docs/) folder:
 
 ```
 nemo-demo/
-├── main.py                          # CLI entry point
-├── docs/                            # Documentation
-│   ├── spec.md                      # Original specification
-│   ├── USAGE.md                     # Usage guide
-│   ├── ARCHITECTURE_BREAKDOWN.md    # System architecture
-│   └── ...                          # More docs
+├── demo_full_traceability.py        # 🎯 MAIN DEMO: Proactive vs Reactive
+├── demo_data_quality.py             # Data quality validation demo
+├── main.py                          # Interactive CLI (original agent)
+├── simple_test.py                   # Quick agent test
+├── demo_queries.py                  # Multiple query demos
+│
+├── README_FULL_TRACEABILITY.md      # Main demo guide
+├── QUICK_START_MODES.md             # Quick reference
+├── BIDIRECTIONAL_TRACEABILITY.md    # Architecture
+├── DATA_QUALITY_SUMMARY.md          # Trust Plane overview
+├── LLM_JUDGE_VALIDATION.md          # LLM Judge docs
+├── OTEL_OPENLINEAGE_CORRELATION.md  # Observability
+│
+├── docker-compose-marquez.yml       # Marquez backend (Postgres + API + Web)
+│
 ├── config/                          # Configuration
-│   ├── settings.py                  # Environment settings
+│   ├── settings.py                  # Environment settings + OpenLineage
 │   └── policies.py                  # Approved libraries list
+│
 ├── src/
 │   ├── llm/                         # NVIDIA API client
 │   │   ├── nvidia_client.py
 │   │   └── prompts.py
+│   │
 │   ├── tools/                       # Agent tools
 │   │   ├── base.py
 │   │   ├── security_checker.py
 │   │   ├── cost_estimator.py
 │   │   ├── docs_search.py
 │   │   └── registry.py
+│   │
 │   ├── rag/                         # RAG components
 │   │   ├── embeddings.py
-│   │   └── vectorstore.py
+│   │   └── vectorstore.py           # ChromaDB with lineage metadata
+│   │
 │   ├── orchestrator/                # LangGraph agent
 │   │   ├── state.py
 │   │   ├── nodes.py
 │   │   ├── graph.py
-│   │   └── agent.py
-│   ├── guardrails/                  # Safety checks
-│   │   └── policy_checker.py
+│   │   └── agent.py                 # Agent with lineage tracking
+│   │
+│   ├── guardrails/                  # NeMo Guardrails
+│   │   └── nemo_guardrails.py       # Input/output validation
+│   │
+│   ├── observability/               # Observability
+│   │   ├── lineage/                 # OpenLineage integration
+│   │   │   ├── client.py            # Lineage client
+│   │   │   ├── emitter.py           # Event emitter
+│   │   │   ├── context.py           # Context manager
+│   │   │   └── metrics.py           # Data quality metrics
+│   │   └── ...                      # OpenTelemetry (future)
+│   │
+│   ├── ingestion/                   # Data ingestion
+│   │   └── lineage_tracker.py       # Ingestion with lineage tracking
+│   │
+│   ├── trust_plane/                 # Trust Plane (Proactive)
+│   │   ├── enforcer.py              # Authorization enforcement
+│   │   ├── policy.py                # Policy definitions
+│   │   └── policies.yaml            # Data quality policies
+│   │
+│   ├── validation/                  # LLM Judge (Reactive)
+│   │   ├── judge.py                 # LLM Judge validation
+│   │   └── verdict.py               # Verdict model
+│   │
 │   └── utils/                       # Utilities
 │       └── logger.py
-├── data/docs/                       # Sample documentation
-│   ├── deployment_guide.md
-│   └── nemo_retriever_setup.md
-└── scripts/                         # Setup scripts
-    ├── setup_vectorstore.py
-    └── test_nvidia_api.py
+│
+├── data/
+│   ├── docs/                        # Sample documentation
+│   │   ├── deployment_guide.md
+│   │   └── nemo_retriever_setup.md
+│   └── ground_truth.json            # Ground truth for LLM Judge
+│
+├── scripts/                         # Setup scripts
+│   ├── setup_vectorstore.py
+│   └── test_nvidia_api.py
+│
+├── tests/                           # Test suites
+│   ├── test_lineage.py              # OpenLineage tests
+│   ├── test_trust_plane.py          # Trust Plane tests
+│   ├── test_llm_judge.py            # LLM Judge tests
+│   ├── test_marquez_api.py          # Marquez API tests
+│   └── test_data_quality.py         # End-to-end tests
+│
+└── docs/                            # Additional documentation
+    ├── USAGE.md
+    ├── OBSERVABILITY.md
+    ├── LANGFUSE.md
+    └── ...
 ```
 
 ## 🔧 Troubleshooting
@@ -661,12 +853,16 @@ This happens with large documents. The default chunking (1000 chars) should work
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Agent Orchestration | LangGraph | ReAct loop state machine |
-| LLM Inference | NVIDIA API (Llama 3.1 70B) | Reasoning and decision making |
-| Vector Database | ChromaDB | Document embeddings storage |
-| Embeddings | SentenceTransformers | Local text embeddings |
-| Guardrails | NeMo Guardrails | Enterprise safety validation |
-| CLI | Python | Interactive interface |
+| **Data Quality** | Trust Plane + LLM Judge | Proactive blocking + Reactive detection |
+| **Data Lineage** | OpenLineage + Marquez | Bidirectional traceability and visualization |
+| **Agent Orchestration** | LangGraph | ReAct loop state machine |
+| **LLM Inference** | NVIDIA API (Llama 3.1 70B) | Reasoning and decision making |
+| **Vector Database** | ChromaDB | Document embeddings + lineage metadata |
+| **Embeddings** | SentenceTransformers | Local text embeddings |
+| **Guardrails** | NeMo Guardrails | Input/output validation |
+| **Tracing** | OpenTelemetry | Infrastructure observability |
+| **LLM Analytics** | Langfuse | LLM-specific observability |
+| **CLI** | Python | Interactive interface |
 
 ## 📊 Performance
 

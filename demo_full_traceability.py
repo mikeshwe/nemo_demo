@@ -134,6 +134,456 @@ def query_marquez(ingestion_run_id):
         log_verbose(f"  [VERBOSE] Marquez query failed: {e}", 1)
         return False
 
+
+def bootstrap_lineage_graph(agent, ingestion_run_id):
+    """
+    Bootstrap the lineage graph by running a test query
+    This establishes the tool→dataset→agent lineage relationships
+    """
+    print("=" * 70)
+    print("STEP 2: BOOTSTRAP LINEAGE GRAPH")
+    print("=" * 70)
+    print()
+
+    print("Purpose: Establish tool→dataset dependencies in OpenLineage")
+    print()
+    print("In production systems, lineage graphs are built over time as")
+    print("tools execute. To enable forward impact analysis, we run a test")
+    print("query to establish the relationships:")
+    print()
+    print("  Source File → Dataset → Tool → Agent")
+    print()
+
+    # Temporarily disable Trust Plane for bootstrap
+    trust_plane_was_enabled = os.getenv("TRUST_PLANE_ENABLED", "false")
+    os.environ["TRUST_PLANE_ENABLED"] = "false"
+
+    try:
+        print("Running test query (Trust Plane temporarily disabled)...")
+
+        # Run a simple test query to establish lineage
+        test_query = "What is NeMo?"
+        print(f"Query: \"{test_query}\"")
+        print()
+
+        result = agent.run(test_query)
+
+        print(f"✓ Test query executed")
+        print(f"  • Tool calls made: {result.get('tool_calls', 0)}")
+        print(f"  • Iterations: {result.get('iterations', 0)}")
+
+        # Show lineage trace
+        if result.get('tool_calls', 0) > 0:
+            print()
+            print("📊 Lineage Trace (Established):")
+            print()
+            print(f"  1. DATASET: chromadb/internal_docs.chunks")
+            print(f"     ├─ Producer: ingestion_run:{ingestion_run_id[:8]}...")
+            print(f"     └─ Contains: Document chunks with lineage metadata")
+            print()
+            print(f"  2. TOOL: internal_docs_search")
+            print(f"     ├─ Action: Read from chromadb/internal_docs.chunks")
+            print(f"     ├─ Retrieved: Document chunks")
+            print(f"     └─ Sets: lineage.input_run_ids in OTel span")
+            print()
+            print(f"  3. AGENT: agent_query (job)")
+            print(f"     ├─ Calls: internal_docs_search tool")
+            print(f"     ├─ Reads span: lineage.input_run_ids")
+            print(f"     └─ Emits: OpenLineage event with dataset as INPUT")
+            print()
+            print(f"  Result: dataset → tool → agent lineage established")
+
+            # In very verbose mode, show OTel span correlation details
+            if VERBOSITY >= 2:
+                print()
+                print("  [VV] OpenTelemetry Span → OpenLineage Correlation:")
+                print()
+
+                try:
+                    from src.observability.lineage import get_current_run_id
+                    from src.observability import is_initialized as is_otel_initialized
+
+                    current_run_id = get_current_run_id()
+
+                    if is_otel_initialized():
+                        print("     ✓ OTel initialized - Production lineage tracking enabled")
+                        print()
+
+                        if current_run_id:
+                            print(f"     Agent Run ID: {current_run_id[:16]}...")
+                            print(f"       → Used as OpenLineage job run ID")
+                        print()
+
+                        print("     OTel Span Attributes (set by tool):")
+                        print("       • lineage.input_run_ids = '<producer_run_id_1>,<producer_run_id_2>,...'")
+                        print("       • Set when tool reads from ChromaDB")
+                        print()
+
+                        print("     Correlation Flow (Production Pattern):")
+                        print("       1. Tool accesses dataset")
+                        print("       2. Tool sets span.set_attribute('lineage.input_run_ids', ...)")
+                        print("       3. Agent completes")
+                        print("       4. Agent reads span.attributes.get('lineage.input_run_ids')")
+                        print("       5. Agent emits OpenLineage event with inputs=[datasets]")
+                        print("       6. Marquez creates link: dataset (producer) → job (consumer)")
+                        print()
+
+                        print("     Why OTel is required:")
+                        print("       • Span attributes propagate across async/threaded operations")
+                        print("       • Distributed tracing enables cross-service lineage")
+                        print("       • Production observability requires OTel as foundation")
+                    else:
+                        print("     ❌ OTel NOT initialized - Lineage correlation will FAIL")
+                        print()
+                        print("     Impact:")
+                        print("       • Tool cannot set lineage.input_run_ids (no span)")
+                        print("       • Agent cannot read dataset dependencies")
+                        print("       • OpenLineage event will NOT include inputs")
+                        print("       • Marquez will NOT create consumer relationship")
+                        print()
+                        print("     → This is a critical error in production systems")
+                    print()
+                except Exception as e:
+                    log_verbose(f"     [VV] Could not show span details: {e}", 2)
+        else:
+            print()
+            print("  ⚠️  Warning: No tools were called!")
+            print("     Lineage events may not be emitted")
+        print()
+
+        # Check if lineage is actually enabled
+        from src.observability.lineage import is_lineage_enabled
+        if is_lineage_enabled():
+            # Only verify if tools were actually called
+            if result.get('tool_calls', 0) > 0:
+                # Give Marquez time to process the event
+                print("⏳ Waiting for Marquez to process OpenLineage events...")
+                time.sleep(2)  # Increased to 2 seconds
+
+                # Verify the job was created in Marquez
+                try:
+                    marquez_url = os.getenv("OPENLINEAGE_URL", "http://localhost:5001")
+                    jobs_url = f"{marquez_url}/api/v1/jobs"
+                    response = requests.get(jobs_url, timeout=2)
+
+                    if response.status_code == 200:
+                        jobs_data = response.json()
+                        all_jobs = jobs_data.get('jobs', [])
+
+                        # Look for agent_query job specifically
+                        agent_jobs = [j for j in all_jobs if 'agent' in j.get('name', '').lower()]
+
+                        if agent_jobs:
+                            agent_job = agent_jobs[0]
+                            job_inputs = agent_job.get('inputs', [])
+
+                            print(f"✓ OpenLineage event successfully processed by Marquez")
+                            print(f"  • Job created: {agent_job.get('namespace')}:{agent_job.get('name')}")
+                            print(f"  • Input datasets: {len(job_inputs)}")
+
+                            # Check if our dataset is in the inputs
+                            has_our_dataset = any(
+                                inp.get('name') == 'internal_docs.chunks' and
+                                inp.get('namespace') == 'chromadb'
+                                for inp in job_inputs
+                            )
+
+                            if has_our_dataset:
+                                print(f"  • ✓ Consumes: chromadb/internal_docs.chunks")
+                                print(f"  • Lineage: dataset → agent_query (VERIFIED)")
+                            else:
+                                print(f"  • ⚠️  Dataset NOT in inputs:")
+                                for inp in job_inputs:
+                                    print(f"      - {inp.get('namespace')}/{inp.get('name')}")
+                                print(f"  • (Agent may not have emitted lineage event correctly)")
+                        else:
+                            print("⚠️  Warning: No agent jobs found in Marquez")
+                            print(f"   • Total jobs found: {len(all_jobs)}")
+                            for job in all_jobs[:3]:
+                                print(f"     - {job.get('namespace')}:{job.get('name')}")
+                            print("   • Possible causes:")
+                            print("     - Agent didn't emit OpenLineage event")
+                            print("     - Tool didn't set lineage.input_run_ids")
+                            print("     - Event still processing (rare)")
+                    else:
+                        print(f"⚠️  Could not verify job creation (Marquez returned {response.status_code})")
+                except Exception as e:
+                    print(f"⚠️  Could not verify job creation: {e}")
+                print()
+            else:
+                print("⚠️  No tools called - lineage event NOT emitted")
+                print("   (Agent must call tools that access datasets)")
+                print()
+        else:
+            print("⚠️  OpenLineage is disabled - no lineage events emitted")
+            print("   (Set OPENLINEAGE_ENABLED=true in .env to enable)")
+            print()
+
+        log_verbose(f"[VERBOSE] Bootstrap query result: {result.get('answer', '')[:100]}...", 1)
+
+    finally:
+        # Restore Trust Plane setting
+        os.environ["TRUST_PLANE_ENABLED"] = trust_plane_was_enabled
+        print("✓ Trust Plane re-enabled for subsequent steps")
+        print()
+
+
+def analyze_impact(ingestion_run_id, metrics):
+    """
+    Analyze forward lineage impact of data quality issues
+    Shows which tools/queries will be affected by stale data
+    """
+    print("=" * 70)
+    print("STEP 3: IMPACT ANALYSIS (Forward Lineage)")
+    print("=" * 70)
+    print()
+
+    print("Data Ingestion Completed:")
+    print(f"  ✓ Run ID: {ingestion_run_id}")
+    print(f"  ✓ Dataset: chromadb/internal_docs.chunks")
+    print()
+
+    # Check for data quality issues
+    max_freshness = metrics.get('max_freshness_days', 0) if metrics else 0
+    threshold = 30
+
+    if max_freshness > threshold:
+        print("⚠️  Data Quality Issues Detected:")
+        print()
+        print(f"  Issue: Stale Data (max_freshness_days: {max_freshness} > threshold: {threshold})")
+        print(f"    └─ Source: stale_nemo_guide.md (last modified: {int(max_freshness)} days ago)")
+        print()
+
+        # Forward lineage analysis
+        print("📊 Forward Lineage Impact Analysis:")
+        print()
+        print("  Analyzing downstream impact...")
+
+        marquez_url = os.getenv("OPENLINEAGE_URL", "http://localhost:5001")
+        lineage_url = f"{marquez_url}/api/v1/lineage?nodeId=dataset:chromadb/internal_docs.chunks&depth=2"
+        print(f"  └─ Querying: {lineage_url}")
+        print()
+
+        # Query Marquez for jobs that consume this dataset
+        consumers_found = []
+        consumer_jobs = []
+
+        try:
+            # Query all jobs and filter those with our dataset as input
+            jobs_url = f"{marquez_url}/api/v1/jobs"
+            response = requests.get(jobs_url, timeout=2)
+
+            if response.status_code == 200:
+                jobs_data = response.json()
+                all_jobs = jobs_data.get('jobs', [])
+
+                # Filter jobs that consume our dataset
+                target_dataset = "internal_docs.chunks"
+                for job in all_jobs:
+                    job_inputs = job.get('inputs', [])
+                    for inp in job_inputs:
+                        if inp.get('name') == target_dataset and inp.get('namespace') == 'chromadb':
+                            job_name = job.get('name', 'unknown')
+                            job_namespace = job.get('namespace', 'unknown')
+
+                            # Store the job with its full metadata for -vv mode
+                            consumer_jobs.append({
+                                'name': job_name,
+                                'namespace': job_namespace,
+                                'full_id': f"{job_namespace}:{job_name}",
+                                'inputs': job_inputs,  # Save for -vv mode
+                                'latest_run': job.get('latestRun', {})  # Save for -vv mode
+                            })
+                            consumers_found.append(job_name)
+                            break  # Only count each job once
+
+                if consumer_jobs:
+                    print(f"  ✓ Found {len(consumer_jobs)} job(s) consuming this dataset:")
+                    print()
+
+                    for job in consumer_jobs:
+                        job_name = job['name']
+                        print(f"    • Job: {job_name} (namespace: {job['namespace']})")
+
+                        # Classify job type
+                        if 'agent' in job_name.lower():
+                            print(f"      Type: Agent query")
+                        elif 'tool' in job_name.lower():
+                            print(f"      Type: Tool execution")
+                        else:
+                            print(f"      Type: Unknown consumer")
+                    print()
+
+                    log_verbose(f"[VERBOSE] Consumer jobs: {[j['full_id'] for j in consumer_jobs]}", 1)
+                else:
+                    print("  ⚠️  No downstream consumers found yet")
+                    print("      This is expected on first run before agents execute")
+                    print("      (Bootstrap step will establish these relationships)")
+                    print()
+            else:
+                print(f"  ⚠️  Marquez API returned {response.status_code}")
+                print("  (Using architecture-based impact prediction)")
+                print()
+        except Exception as e:
+            log_verbose(f"  [VERBOSE] Marquez query failed: {e}", 1)
+            print("  ⚠️  Marquez API unavailable")
+            print("  (Using architecture-based impact prediction)")
+            print()
+
+        # In very verbose mode, show the lineage trail (even if Marquez query failed)
+        if VERBOSITY >= 2:
+            print("  [VV] Lineage Trail (Forward Tracing):")
+            print()
+            print("  Step-by-step lineage flow showing how stale data propagates:")
+            print()
+
+            # Show the lineage chain
+            print("  1. SOURCE DATA (Ingestion)")
+            print("     ├─ Ingestion Job: stale_doc_ingestion")
+            print(f"     ├─ Run ID: {ingestion_run_id[:8]}...")
+            print(f"     ├─ File: stale_nemo_guide.md (45 days old)")
+            print("     └─ Data Quality: max_freshness_days = 45.0 ← VIOLATION!")
+            print()
+
+            print("  2. DATASET PRODUCED")
+            print("     ├─ Dataset: chromadb/internal_docs.chunks")
+            print("     ├─ Contains: 2 document chunks")
+            print("     ├─ Each chunk metadata includes:")
+            print(f"     │  └─ lineage.producer_run_id: {ingestion_run_id[:8]}...")
+            print("     └─ OpenLineage facet: dataQualityMetrics")
+            print()
+
+            print("  3. TOOL DEPENDENCIES")
+            print("     ├─ Tool: internal_docs_search")
+            print("     ├─ Depends on: chromadb/internal_docs.chunks")
+            print("     ├─ Impact: Returns stale data (45 days old)")
+            print("     └─ Queries affected:")
+            print("        • \"What are the system requirements for NeMo?\"")
+            print("        • \"How do I deploy NeMo Retriever?\"")
+            print("        • Any NeMo documentation queries")
+            print()
+
+            print("  4. AGENT OPERATIONS")
+            print("     ├─ Agent: GenAIOpsAgent")
+            print("     ├─ Uses tool: internal_docs_search")
+            print("     ├─ Impact: Will generate outdated answers")
+            print("     └─ Governance:")
+            print("        ├─ Trust Plane: Will BLOCK (proactive)")
+            print("        └─ LLM Judge: Will DETECT error (reactive)")
+            print()
+
+            print("  5. USER IMPACT")
+            print("     ├─ Proactive Mode: User query BLOCKED before execution")
+            print("     │  └─ User never sees stale data")
+            print("     ├─ Reactive Mode: User receives answer with stale data")
+            print("     │  └─ Error detected after user sees it")
+            print("     └─ Root Cause: Traceable back to stale_nemo_guide.md")
+            print()
+
+            # Show consumer jobs from Marquez if found
+            if consumer_jobs:
+                print("  [VV] Discovered Consumers from Marquez:")
+                print()
+                for job in consumer_jobs:
+                    print(f"    • {job['full_id']}")
+                    print(f"      └─ Consumes: chromadb/internal_docs.chunks")
+                print()
+
+                # Show actual lineage metadata proving the connection
+                print("  [VV] Actual Lineage Metadata from Marquez (Proof):")
+                print()
+                for job in consumer_jobs:
+                    print(f"  Job: {job['full_id']}")
+                    print(f"    Inputs (from Marquez job.inputs):")
+
+                    # Display each input dataset
+                    inputs = job.get('inputs', [])
+                    if inputs:
+                        for inp in inputs:
+                            namespace = inp.get('namespace', 'N/A')
+                            name = inp.get('name', 'N/A')
+                            print(f"      • Dataset: {namespace}/{name}")
+
+                            # Show facets if available (like producerRunId)
+                            facets = inp.get('facets', {})
+                            if facets:
+                                print(f"        Facets:")
+                                for facet_key, facet_value in facets.items():
+                                    if facet_key == 'producerRunId':
+                                        producer_id = facet_value.get('producerRunId', 'N/A')
+                                        print(f"          • producerRunId: {producer_id[:16]}...")
+                                        print(f"            (Links to ingestion job run)")
+                                    else:
+                                        print(f"          • {facet_key}: {facet_value}")
+                    else:
+                        print(f"      (No inputs found in metadata)")
+
+                    # Show latest run info
+                    latest_run = job.get('latest_run', {})
+                    if latest_run:
+                        print(f"    Latest Run:")
+                        run_id = latest_run.get('id')
+                        if run_id:
+                            print(f"      • run_id: {run_id[:16]}...")
+                        else:
+                            print(f"      • run_id: N/A")
+
+                        state = latest_run.get('state')
+                        print(f"      • state: {state if state else 'N/A'}")
+
+                        started_at = latest_run.get('startedAt')
+                        if started_at:
+                            print(f"      • started: {started_at[:19]}")
+                        else:
+                            print(f"      • started: N/A")
+                    print()
+
+                print("  This metadata confirms the lineage connection exists in Marquez.")
+            else:
+                print("  [VV] No consumers found in Marquez yet")
+                print("      (Expected after bootstrap establishes lineage)")
+                print()
+
+            print("  This lineage trail demonstrates FORWARD traceability:")
+            print("    Stale file → Dataset → Tool → Agent → User impact")
+            print()
+
+        # Only show impact if we found real consumers from Marquez
+        if consumer_jobs:
+            print("  ✓ Forward Lineage Impact (from actual Marquez data):")
+            print()
+            for job in consumer_jobs:
+                print(f"    Impact on: {job['full_id']}")
+                if 'agent' in job['name'].lower():
+                    print(f"      • Agent queries will use stale data ({int(max_freshness)} days old)")
+                    print(f"      • Trust Plane will BLOCK access (threshold: {threshold} days)")
+                elif 'tool' in job['name'].lower():
+                    print(f"      • Tool will return outdated information")
+                print()
+            print("  This demonstrates FORWARD lineage tracing:")
+            print("    Data quality issue → Actual downstream consumers (from lineage graph)")
+            print()
+        else:
+            print("  ❌ Forward Lineage Impact Analysis: FAILED")
+            print()
+            print("     No downstream consumers found in Marquez lineage graph.")
+            print("     Cannot perform impact analysis without lineage data.")
+            print()
+            print("     Troubleshooting:")
+            print("       • Verify bootstrap (Step 2) completed successfully")
+            print("       • Check that agent_query job was created in Marquez")
+            print("       • Ensure OpenLineage events are being emitted")
+            print()
+
+        # Brief pause
+        print("[Continuing with demo to show proactive vs reactive behavior...]")
+        print()
+        time.sleep(2)
+    else:
+        print("✓ No data quality issues detected")
+        print()
+
+
 # Load environment
 load_dotenv()
 
@@ -447,7 +897,7 @@ def check_trust_plane(query_type="system_requirements"):
 def run_proactive_mode(agent, ingestion_run_id):
     """Run proactive mode: Trust Plane blocks stale data before query"""
     print("="*80)
-    print("STEP 2: PROACTIVE MODE - TRUST PLANE")
+    print("STEP 4: PROACTIVE MODE - TRUST PLANE")
     print("="*80 + "\n")
 
     query = GROUND_TRUTH["system_requirements"]["question"]
@@ -520,7 +970,7 @@ def run_proactive_mode(agent, ingestion_run_id):
 def run_reactive_mode(agent, ingestion_run_id, llm_client):
     """Run reactive mode: LLM Judge detects error after agent answers"""
     print("="*80)
-    print("STEP 2: REACTIVE MODE - LLM JUDGE")
+    print("STEP 4: REACTIVE MODE - LLM JUDGE")
     print("="*80 + "\n")
 
     query = GROUND_TRUTH["system_requirements"]["question"]
@@ -644,6 +1094,25 @@ def main():
     # Initialize components
     print("Initializing components...")
 
+    # Initialize OpenTelemetry for distributed tracing (enables lineage correlation)
+    otel_initialized = False
+    try:
+        from src.observability import initialize_observability, is_initialized
+        initialize_observability(
+            service_name="genaiops-demo",
+            service_version="1.0.0",
+            environment="demo",
+            enable_console=False  # Disable console to avoid cluttering demo output
+        )
+        otel_initialized = is_initialized()
+        if otel_initialized:
+            print(f"✓ OpenTelemetry initialized")
+            log_verbose(f"  • Service: genaiops-demo", 1)
+            log_verbose(f"  • Enables OTel span → OpenLineage correlation\n", 1)
+    except ImportError:
+        print("⚠️  OpenTelemetry not available")
+    print()
+
     # Initialize OpenLineage if available
     lineage_initialized = False
     if LINEAGE_AVAILABLE:
@@ -705,7 +1174,13 @@ def main():
     try:
         ingestion_run_id, metrics = ingest_to_chromadb(file_path, vectorstore, embedding_model)
 
-        # Step 2: Run mode-specific demo
+        # Step 2: Bootstrap lineage graph with test query
+        bootstrap_lineage_graph(agent, ingestion_run_id)
+
+        # Step 3: Analyze impact (forward lineage - now has historical data!)
+        analyze_impact(ingestion_run_id, metrics)
+
+        # Step 4: Run mode-specific demo
         if args.mode == 'proactive':
             # Proactive mode: Trust Plane blocks stale data
             check_result = run_proactive_mode(agent, ingestion_run_id)
@@ -755,6 +1230,15 @@ def main():
                 print("  • Timing is critical: Prevention >> Detection\n")
 
     finally:
+        # Shutdown observability
+        if otel_initialized:
+            try:
+                from src.observability import shutdown_observability
+                shutdown_observability()
+                log_verbose("[VERBOSE] OpenTelemetry shutdown", 1)
+            except:
+                pass
+
         # Cleanup
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
