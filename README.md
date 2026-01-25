@@ -1,6 +1,6 @@
 # Active Trust Plane for Agentic AI
 
-A production-ready Agentic AI prototype demonstrating **data quality management** for AI agents with **Trust Plane (proactive)** and **LLM Judge (reactive)** validation patterns. This demo showcases how **Trust Plane moves data lineage from passive metadata to active governance middleware**, using lineage data to enforce quality policies before queries execute. Features **true bidirectional traceability** with OpenLineage: **forward lineage** (data issue → impacted tools) for impact analysis and **backward lineage** (agent error → stale data) for root cause analysis. Real ChromaDB and Marquez integration.
+An Agentic AI prototype demonstrating **data quality management** for AI agents with **Trust Plane (proactive)** and **LLM Judge (reactive)** validation patterns. This demo showcases how **Trust Plane moves data lineage from passive metadata to active governance middleware**, using lineage data to enforce quality policies before queries execute. Features **true bidirectional traceability** with OpenLineage: **forward lineage** (data issue → impacted tools) for impact analysis and **backward lineage** (agent error → stale data) for root cause analysis. Real ChromaDB and Marquez integration.
 
 ## Overview
 
