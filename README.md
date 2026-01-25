@@ -2,7 +2,7 @@
 
 A production-ready Agentic AI prototype demonstrating **data quality management** for AI agents with **Trust Plane (proactive)** and **LLM Judge (reactive)** validation patterns. This demo showcases how **Trust Plane moves data lineage from passive metadata to active governance middleware**, using lineage data to enforce quality policies before queries execute. Features **true bidirectional traceability** with OpenLineage: **forward lineage** (data issue → impacted tools) for impact analysis and **backward lineage** (agent error → stale data) for root cause analysis. Real ChromaDB and Marquez integration.
 
-## 🚀 Overview
+## Overview
 
 This project showcases:
 - **Trust Plane (Proactive)**: Pre-query authorization that prevents stale data from reaching agents
@@ -15,7 +15,7 @@ This project showcases:
 - **NeMo Guardrails**: Input/output validation with NVIDIA's NeMo Guardrails framework
 - **AI Observability**: Dual observability with OpenTelemetry (infrastructure) and Langfuse (LLM analytics)
 
-## 🎯 Quick Start: Main Demo
+## Quick Start: Main Demo
 
 The **main demo** shows proactive vs reactive data quality management:
 
@@ -35,33 +35,33 @@ python3 demo_full_traceability.py --mode both       # Side-by-side comparison
 ### What the Demo Shows
 
 **Step 1: Ingestion with Lineage Tracking**:
-- 📝 Ingests stale document (45 days old) to ChromaDB
-- 📝 Tracks producer_run_id in document metadata
-- 📝 Emits OpenLineage events with data quality metrics
+- Ingests stale document (45 days old) to ChromaDB
+- Tracks producer_run_id in document metadata
+- Emits OpenLineage events with data quality metrics
 
 **Step 2: Bootstrap Lineage Graph**:
-- 🔧 Runs test query to establish tool→dataset dependencies
-- 🔧 Emits OpenLineage events for tool execution
-- 🔧 Builds lineage graph: ingestion → dataset → tool → agent
-- 🔧 Enables forward impact analysis (realistic production pattern)
+- Runs test query to establish tool→dataset dependencies
+- Emits OpenLineage events for tool execution
+- Builds lineage graph: ingestion → dataset → tool → agent
+- Enables forward impact analysis (realistic production pattern)
 
 **Step 3: Impact Analysis (Forward Lineage)**:
-- 📊 Queries Marquez for tools consuming the stale dataset
-- 📊 Identifies affected tools from actual lineage graph
-- 📊 Predicts downstream impact before user queries
-- 📊 Demonstrates forward lineage: data issue → impacted tools
+- Queries Marquez for tools consuming the stale dataset
+- Identifies affected tools from actual lineage graph
+- Predicts downstream impact before user queries
+- Demonstrates forward lineage: data issue → impacted tools
 
 **Step 4: Proactive Mode (Trust Plane)**:
-- ✅ Checks data quality BEFORE agent query
-- ✅ Blocks queries if data is stale (>30 days)
-- ✅ Agent never sees outdated information
-- ✅ Uses backward lineage for automatic root cause
+- Checks data quality BEFORE agent query
+- Blocks queries if data is stale (>30 days)
+- Agent never sees outdated information
+- Uses backward lineage for automatic root cause
 
 **Step 4: Reactive Mode (LLM Judge)**:
-- ❌ Agent uses stale data to generate answer
-- ❌ User sees incorrect information
-- ✅ LLM Judge detects error AFTER response
-- ✅ Uses backward lineage for automatic root cause (too late!)
+- Agent uses stale data to generate answer
+- User sees incorrect information
+- LLM Judge detects error AFTER response
+- Uses backward lineage for automatic root cause (too late!)
 
 **Key Insight**: Bootstrap builds lineage graph → Forward analysis predicts impact → Proactive prevents errors → Reactive detects them (too late)
 
@@ -205,12 +205,12 @@ This demo includes comprehensive OpenTelemetry instrumentation for AI observabil
 
 ### What's Instrumented
 
-- ✅ **Agent Execution**: Complete agent runs with query, iterations, and tool calls
-- ✅ **LLM API Calls**: Auto-instrumented OpenAI SDK capturing all NVIDIA API calls
-- ✅ **Tool Executions**: Individual tool calls with arguments, results, and timing
-- ✅ **Guardrails**: Input/output validation with NeMo Guardrails or fallback
-- ✅ **RAG Operations**: Embedding generation and vector search with ChromaDB
-- ✅ **Iterations**: Each reasoning step with decision tracking
+- **Agent Execution**: Complete agent runs with query, iterations, and tool calls
+- **LLM API Calls**: Auto-instrumented OpenAI SDK capturing all NVIDIA API calls
+- **Tool Executions**: Individual tool calls with arguments, results, and timing
+- **Guardrails**: Input/output validation with NeMo Guardrails or fallback
+- **RAG Operations**: Embedding generation and vector search with ChromaDB
+- **Iterations**: Each reasoning step with decision tracking
 
 ### Viewing Telemetry
 
@@ -244,10 +244,10 @@ python simple_test.py --quiet --save-telemetry my_report.txt
 ```
 
 **What's in the report:**
-- 📊 **Summary Statistics**: Total spans, iterations, tool calls, LLM API calls
-- ⏱️ **Execution Timeline**: ASCII visualization of span hierarchy and timing
-- 🪙 **Token Usage Chart**: Bar chart showing token consumption per LLM call
-- 🔧 **Tool Timing**: Performance metrics for each tool execution
+- **Summary Statistics**: Total spans, iterations, tool calls, LLM API calls
+- **Execution Timeline**: ASCII visualization of span hierarchy and timing
+- **Token Usage Chart**: Bar chart showing token consumption per LLM call
+- **Tool Timing**: Performance metrics for each tool execution
 
 **Example output:**
 ```
